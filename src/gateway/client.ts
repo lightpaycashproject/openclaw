@@ -170,7 +170,11 @@ export class GatewayClient {
       clearInterval(this.tickTimer);
       this.tickTimer = null;
     }
-    this.ws?.close();
+    try {
+      this.ws?.terminate();
+    } catch {
+      // ignore
+    }
     this.ws = null;
     this.flushPendingErrors(new Error("gateway client stopped"));
   }
