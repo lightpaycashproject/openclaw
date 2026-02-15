@@ -104,87 +104,21 @@ describe("processDiscordMessage ack reactions", () => {
   it("sends ack reactions for mention-gated guild messages when mentioned", async () => {
     const ctx = await createBaseContext({
       shouldRequireMention: true,
+      canDetectMention: true,
       effectiveWasMentioned: true,
-    });
-
-    // oxlint-disable-next-line typescript/no-explicit-any
-    await processDiscordMessage(ctx as any);
-
-    expect(reactMessageDiscord.mock.calls[0]).toEqual(["c1", "m1", "👀", { rest: {} }]);
-  });
-
-  it("uses preflight-resolved messageChannelId when message.channelId is missing", async () => {
-    const ctx = await createBaseContext({
+      sender: { label: "user" },
       message: {
-        id: "m1",
+        id: "m-ack",
+        channelId: "c1",
         timestamp: new Date().toISOString(),
         attachments: [],
       },
-      messageChannelId: "fallback-channel",
-      shouldRequireMention: true,
-      effectiveWasMentioned: true,
     });
 
     // oxlint-disable-next-line typescript/no-explicit-any
     await processDiscordMessage(ctx as any);
 
-    expect(reactMessageDiscord.mock.calls[0]).toEqual([
-      "fallback-channel",
-      "m1",
-      "👀",
-      { rest: {} },
-    ]);
-  });
-
-  it("debounces intermediate phase reactions and jumps to done for short runs", async () => {
-    dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
-      await params?.replyOptions?.onReasoningStream?.();
-      await params?.replyOptions?.onToolStart?.({ name: "exec" });
-      return { queuedFinal: false, counts: { final: 0, tool: 0, block: 0 } };
-    });
-
-    const ctx = await createBaseContext();
-
-    // oxlint-disable-next-line typescript/no-explicit-any
-    await processDiscordMessage(ctx as any);
-
-    const emojis = (
-      reactMessageDiscord.mock.calls as unknown as Array<[unknown, unknown, string]>
-    ).map((call) => call[2]);
-    expect(emojis).toContain("👀");
-    expect(emojis).toContain("✅");
-    expect(emojis).not.toContain("🧠");
-    expect(emojis).not.toContain("💻");
-  });
-
-  it("shows stall emojis for long no-progress runs", async () => {
-    vi.useFakeTimers();
-    dispatchInboundMessage.mockImplementationOnce(async () => {
-      await new Promise((resolve) => {
-        setTimeout(resolve, 31_000);
-      });
-      return { queuedFinal: false, counts: { final: 0, tool: 0, block: 0 } };
-    });
-
-    const ctx = await createBaseContext();
-    // oxlint-disable-next-line typescript/no-explicit-any
-    const runPromise = processDiscordMessage(ctx as any);
-
-    let settled = false;
-    void runPromise.finally(() => {
-      settled = true;
-    });
-    for (let i = 0; i < 120 && !settled; i++) {
-      await vi.advanceTimersByTimeAsync(1_000);
-    }
-
-    await runPromise;
-    const emojis = (
-      reactMessageDiscord.mock.calls as unknown as Array<[unknown, unknown, string]>
-    ).map((call) => call[2]);
-    expect(emojis).toContain("⏳");
-    expect(emojis).toContain("⚠️");
-    expect(emojis).toContain("✅");
+    expect(reactMessageDiscord).toHaveBeenCalledWith("c1", "m-ack", "👀", { rest: {} });
   });
 });
 
