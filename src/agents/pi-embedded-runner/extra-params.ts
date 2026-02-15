@@ -40,8 +40,8 @@ type CacheRetentionStreamOptions = Partial<SimpleStreamOptions> & {
  *
  * Mapping: "5m" → "short", "1h" → "long"
  *
- * Only applies to Anthropic provider (OpenRouter uses openai-completions API
- * with hardcoded cache_control, not the cacheRetention stream option).
+ * Only applies to Anthropic provider (OpenRouter caching is handled by
+ * `createOpenRouterCacheControlWrapper` which injects hardcoded cache_control).
  */
 function resolveCacheRetention(
   extraParams: Record<string, unknown> | undefined,
