@@ -39,14 +39,28 @@ export type GetReplyOptions = {
   onAssistantMessageStart?: () => Promise<void> | void;
   onBlockReply?: (payload: ReplyPayload, context?: BlockReplyContext) => Promise<void> | void;
   onToolResult?: (payload: ReplyPayload) => Promise<void> | void;
-  /** Called when a tool phase starts/updates, before summary payloads are emitted. */
-  onToolStart?: (payload: { name?: string; phase?: string }) => Promise<void> | void;
+  /** Called when a tool starts executing. */
+  onToolStart?: (toolName: string, args?: Record<string, unknown>) => Promise<void> | void;
+  /** Called when a tool updates its execution state. */
+  onToolUpdate?: (toolName: string, partial?: Record<string, unknown>) => Promise<void> | void;
+  /** Called when a tool finishes executing. */
+  onToolEnd?: (res: {
+    toolName: string;
+    isError: boolean;
+    result?: unknown;
+  }) => Promise<void> | void;
   /** Called when the actual model is selected (including after fallback).
    * Use this to get model/provider/thinkLevel for responsePrefix template interpolation. */
   onModelSelected?: (ctx: ModelSelectedContext) => void;
   disableBlockStreaming?: boolean;
   /** Timeout for block reply delivery (ms). */
   blockReplyTimeoutMs?: number;
+  /** Called when a model fallback occurs due to an error. */
+  onFallback?: (
+    error: Error,
+    failedModel: { provider: string; model: string },
+    context?: { attempt: number; total: number; next?: { provider: string; model: string } },
+  ) => Promise<void> | void;
   /** If provided, only load these skills for this session (empty = no skills). */
   skillFilter?: string[];
   /** Mutable ref to track if a reply was sent (for Slack "first" threading mode). */
