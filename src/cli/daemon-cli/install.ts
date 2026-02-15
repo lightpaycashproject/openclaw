@@ -24,6 +24,9 @@ import { parsePort } from "./shared.js";
 import type { DaemonInstallOptions } from "./types.js";
 
 export async function runDaemonInstall(opts: DaemonInstallOptions) {
+  if (process.env.OPENCLAW_DEBUG_INSTALL === "1") {
+    defaultRuntime.log(`[DEBUG] runDaemonInstall force=${opts.force} (${typeof opts.force})`);
+  }
   const json = Boolean(opts.json);
   const { stdout, warnings, emit, fail } = createDaemonActionContext({ action: "install", json });
 
@@ -58,7 +61,8 @@ export async function runDaemonInstall(opts: DaemonInstallOptions) {
     return;
   }
   if (loaded) {
-    if (!opts.force) {
+    const forced = Boolean(opts.force) || process.argv.includes("--force");
+    if (!forced) {
       emit({
         ok: true,
         result: "already-installed",
