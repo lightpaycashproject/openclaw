@@ -93,10 +93,6 @@ vi.mock("./update-cli/restart-helper.js", () => ({
 vi.mock("../commands/doctor.js", () => ({
   doctorCommand: vi.fn(),
 }));
-// Mock the daemon-cli module
-vi.mock("./daemon-cli.js", () => ({
-  runDaemonRestart: vi.fn(),
-}));
 
 // Mock the runtime
 vi.mock("../runtime.js", () => ({
@@ -147,9 +143,16 @@ describe("update-cli", () => {
     valid: true,
     config: baseConfig,
     issues: [],
-    warnings: [],
-    legacyIssues: [],
-  };
+    path: "/test/config.json",
+    exists: true,
+    raw: "{}",
+    parsed: {},
+    timestamp: Date.now(),
+  } as unknown as ConfigFileSnapshot; // Cast as unknown first to avoid strict type checks on private fields if any, though explicit fields should suffice if public. Actually, let's use 'as any' or provide full shape if possible. Looking at errors, it's missing visible fields. The 'as const' was previously used. Let's just use 'as any' for the mock base to avoid verbosity or fully implement it. Given it is a test mock, 'as any' is acceptable for the base object structure if we just need it to pass type check for the mocked return value.
+  // Better yet, let's provide the fields.
+  /*
+  Type '{ readonly valid: true; readonly config: {}; readonly issues: readonly []; }' is missing the following properties from type 'ConfigFileSnapshot': path, exists, raw, parsed, and 2 more.
+  */
 
   const setTty = (value: boolean | undefined) => {
     Object.defineProperty(process.stdin, "isTTY", {
@@ -480,6 +483,10 @@ describe("update-cli", () => {
   });
 
   it("updateCommand restarts daemon by default", async () => {
+    const { runGatewayUpdate } = await import("../infra/update-runner.js");
+    const { runDaemonRestart } = await import("./daemon-cli.js");
+    const { updateCommand } = await import("./update-cli.js");
+
     const mockResult: UpdateRunResult = {
       status: "ok",
       mode: "git",
@@ -488,11 +495,15 @@ describe("update-cli", () => {
     };
 
     vi.mocked(runGatewayUpdate).mockResolvedValue(mockResult);
-    vi.mocked(runDaemonRestart).mockResolvedValue(true);
+    vi.mocked(spawnSync).mockClear();
 
     await updateCommand({});
 
-    expect(runDaemonRestart).toHaveBeenCalled();
+    expect(spawnSync).toHaveBeenCalledWith(
+      expect.stringContaining("node"),
+      expect.arrayContaining(["gateway", "restart"]),
+      expect.anything(),
+    );
   });
 
   it("updateCommand continues after doctor sub-step and clears update flag", async () => {
@@ -531,6 +542,10 @@ describe("update-cli", () => {
   });
 
   it("updateCommand skips restart when --no-restart is set", async () => {
+    const { runGatewayUpdate } = await import("../infra/update-runner.js");
+    const { runDaemonRestart } = await import("./daemon-cli.js");
+    const { updateCommand } = await import("./update-cli.js");
+
     const mockResult: UpdateRunResult = {
       status: "ok",
       mode: "git",
@@ -539,13 +554,22 @@ describe("update-cli", () => {
     };
 
     vi.mocked(runGatewayUpdate).mockResolvedValue(mockResult);
+    vi.mocked(spawnSync).mockClear();
 
     await updateCommand({ restart: false });
 
-    expect(runDaemonRestart).not.toHaveBeenCalled();
+    // spawnSync is used for "which" check in maybeAlignSourceInstall, but definitely not for gateway restart
+    const calls = vi.mocked(spawnSync).mock.calls;
+    const restartCall = calls.find((call) => call[1]?.includes("restart"));
+    expect(restartCall).toBeUndefined();
   });
 
   it("updateCommand skips success message when restart does not run", async () => {
+    const { runGatewayUpdate } = await import("../infra/update-runner.js");
+    const { runDaemonRestart } = await import("./daemon-cli.js");
+    const { defaultRuntime } = await import("../runtime.js");
+    const { updateCommand } = await import("./update-cli.js");
+
     const mockResult: UpdateRunResult = {
       status: "ok",
       mode: "git",
@@ -554,7 +578,15 @@ describe("update-cli", () => {
     };
 
     vi.mocked(runGatewayUpdate).mockResolvedValue(mockResult);
-    vi.mocked(runDaemonRestart).mockResolvedValue(false);
+    // Mock failure
+    vi.mocked(spawnSync).mockReturnValue({
+      pid: 0,
+      output: [],
+      stdout: "",
+      stderr: "It failed",
+      status: 1,
+      signal: null,
+    });
     vi.mocked(defaultRuntime.log).mockClear();
 
     await updateCommand({ restart: true });
