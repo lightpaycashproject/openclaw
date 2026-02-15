@@ -1,5 +1,7 @@
 import { type OpenClawConfig, loadConfig } from "../config/config.js";
 import { resolveOpenClawAgentDir } from "./agent-paths.js";
+import { ensureAuthProfileStore } from "./auth-profiles.js";
+import { hasAuthForProvider } from "./model-auth.js";
 import { ensureOpenClawModelsJson } from "./models-config.js";
 
 export type ModelCatalogEntry = {
@@ -23,6 +25,7 @@ type DiscoveredModel = {
 type PiSdkModule = typeof import("./pi-model-discovery.js");
 
 let modelCatalogPromise: Promise<ModelCatalogEntry[]> | null = null;
+let availableModelCatalogPromise: Promise<ModelCatalogEntry[]> | null = null;
 let hasLoggedModelCatalogError = false;
 const defaultImportPiSdk = () => import("./pi-model-discovery.js");
 let importPiSdk = defaultImportPiSdk;
@@ -58,6 +61,7 @@ function applyOpenAICodexSparkFallback(models: ModelCatalogEntry[]): void {
 
 export function resetModelCatalogCacheForTest() {
   modelCatalogPromise = null;
+  availableModelCatalogPromise = null;
   hasLoggedModelCatalogError = false;
   importPiSdk = defaultImportPiSdk;
 }
@@ -70,15 +74,25 @@ export function __setModelCatalogImportForTest(loader?: () => Promise<PiSdkModul
 export async function loadModelCatalog(params?: {
   config?: OpenClawConfig;
   useCache?: boolean;
+  onlyAvailable?: boolean;
 }): Promise<ModelCatalogEntry[]> {
-  if (params?.useCache === false) {
-    modelCatalogPromise = null;
-  }
-  if (modelCatalogPromise) {
-    return modelCatalogPromise;
+  const useCache = params?.useCache !== false;
+  const onlyAvailable = params?.onlyAvailable === true;
+
+  if (!useCache) {
+    if (onlyAvailable) {
+      availableModelCatalogPromise = null;
+    } else {
+      modelCatalogPromise = null;
+    }
   }
 
-  modelCatalogPromise = (async () => {
+  const existingPromise = onlyAvailable ? availableModelCatalogPromise : modelCatalogPromise;
+  if (existingPromise) {
+    return existingPromise;
+  }
+
+  const promise = (async () => {
     const models: ModelCatalogEntry[] = [];
     const sortModels = (entries: ModelCatalogEntry[]) =>
       entries.sort((a, b) => {
@@ -107,7 +121,14 @@ export async function loadModelCatalog(params?: {
             getAll: () => Array<DiscoveredModel>;
           }
         | Array<DiscoveredModel>;
-      const entries = Array.isArray(registry) ? registry : registry.getAll();
+      const rawEntries = Array.isArray(registry) ? registry : registry.getAll();
+      const authStore = onlyAvailable ? ensureAuthProfileStore(agentDir) : null;
+      const entries =
+        onlyAvailable && authStore
+          ? rawEntries.filter((entry) =>
+              hasAuthForProvider(String(entry?.provider ?? ""), cfg, authStore),
+            )
+          : rawEntries;
       for (const entry of entries) {
         const id = String(entry?.id ?? "").trim();
         if (!id) {
@@ -130,7 +151,11 @@ export async function loadModelCatalog(params?: {
 
       if (models.length === 0) {
         // If we found nothing, don't cache this result so we can try again.
-        modelCatalogPromise = null;
+        if (onlyAvailable) {
+          availableModelCatalogPromise = null;
+        } else {
+          modelCatalogPromise = null;
+        }
       }
 
       return sortModels(models);
@@ -140,7 +165,11 @@ export async function loadModelCatalog(params?: {
         console.warn(`[model-catalog] Failed to load model catalog: ${String(error)}`);
       }
       // Don't poison the cache on transient dependency/filesystem issues.
-      modelCatalogPromise = null;
+      if (onlyAvailable) {
+        availableModelCatalogPromise = null;
+      } else {
+        modelCatalogPromise = null;
+      }
       if (models.length > 0) {
         return sortModels(models);
       }
@@ -148,7 +177,13 @@ export async function loadModelCatalog(params?: {
     }
   })();
 
-  return modelCatalogPromise;
+  if (onlyAvailable) {
+    availableModelCatalogPromise = promise;
+  } else {
+    modelCatalogPromise = promise;
+  }
+
+  return promise;
 }
 
 /**

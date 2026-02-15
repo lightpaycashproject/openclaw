@@ -25,6 +25,26 @@ const AWS_ACCESS_KEY_ENV = "AWS_ACCESS_KEY_ID";
 const AWS_SECRET_KEY_ENV = "AWS_SECRET_ACCESS_KEY";
 const AWS_PROFILE_ENV = "AWS_PROFILE";
 
+export function hasAuthForProvider(
+  provider: string,
+  cfg: OpenClawConfig,
+  authStore: AuthProfileStore,
+): boolean {
+  if (listProfilesForProvider(authStore, provider).length > 0) {
+    return true;
+  }
+  if (provider === "amazon-bedrock" && resolveAwsSdkEnvVarName()) {
+    return true;
+  }
+  if (resolveEnvApiKey(provider)) {
+    return true;
+  }
+  if (getCustomProviderApiKey(cfg, provider)) {
+    return true;
+  }
+  return false;
+}
+
 function resolveProviderConfig(
   cfg: OpenClawConfig | undefined,
   provider: string,
