@@ -2,6 +2,11 @@ export type UsageWindow = {
   label: string;
   usedPercent: number;
   resetAt?: number;
+  /**
+   * Optional absolute remaining balance (e.g., USD credits for OpenRouter).
+   * When present, prefer displaying this instead of percentages.
+   */
+  remaining?: number;
 };
 
 export type ProviderUsageSnapshot = {
@@ -24,5 +29,6 @@ export type UsageProviderId =
   | "google-antigravity"
   | "minimax"
   | "openai-codex"
+  | "openrouter"
   | "xiaomi"
   | "zai";
