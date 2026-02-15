@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { dashboardCommand } from "../../commands/dashboard.js";
 import { doctorCommand } from "../../commands/doctor.js";
+import { resetCooldownsCommand } from "../../commands/reset-cooldowns.js";
 import { resetCommand } from "../../commands/reset.js";
 import { uninstallCommand } from "../../commands/uninstall.js";
 import { defaultRuntime } from "../../runtime.js";
@@ -107,6 +108,30 @@ export function registerMaintenanceCommands(program: Command) {
           yes: Boolean(opts.yes),
           nonInteractive: Boolean(opts.nonInteractive),
           dryRun: Boolean(opts.dryRun),
+        });
+      });
+    });
+
+  program
+    .command("reset-cooldowns")
+    .description("Clear rate-limit cooldowns for auth profiles")
+    .addHelpText(
+      "after",
+      () =>
+        `\n${theme.muted("Examples:")}\n` +
+        `  openclaw reset-cooldowns                     # Clear all cooldowns\n` +
+        `  openclaw reset-cooldowns --provider openrouter  # Clear only OpenRouter\n` +
+        `  openclaw reset-cooldowns --dry-run           # Preview without changing\n`,
+    )
+    .option("--provider <provider>", "Only clear cooldowns for this provider (e.g., openrouter)")
+    .option("--dry-run", "Show what would be cleared without making changes", false)
+    .option("--json", "Output in JSON format", false)
+    .action(async (opts) => {
+      await runCommandWithRuntime(defaultRuntime, async () => {
+        await resetCooldownsCommand({
+          provider: opts.provider,
+          dryRun: Boolean(opts.dryRun),
+          json: Boolean(opts.json),
         });
       });
     });
