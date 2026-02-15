@@ -460,7 +460,6 @@ class GatewaySession(
     }
 
     private suspend fun awaitConnectNonce(): String? {
-      if (isLoopbackHost(endpoint.host)) return null
       return try {
         withTimeout(2_000) { connectNonceDeferred.await() }
       } catch (_: Throwable) {
