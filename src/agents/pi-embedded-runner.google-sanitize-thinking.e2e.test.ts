@@ -201,13 +201,13 @@ describe("sanitizeSessionHistory (google thinking)", () => {
       { type: "thinking", thinking: "ok", thought_signature: "c2ln" },
       {
         type: "toolCall",
-        id: "call_1",
+        id: "call1",
         name: "read",
         arguments: { path: "/tmp/foo" },
       },
       {
         type: "toolCall",
-        id: "call_2",
+        id: "call2",
         name: "read",
         arguments: { path: "/tmp/bar" },
         thoughtSignature: "c2ln",
