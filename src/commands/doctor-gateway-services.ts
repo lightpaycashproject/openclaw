@@ -35,7 +35,7 @@ function detectGatewayRuntime(programArguments: string[] | undefined): GatewayDa
   return DEFAULT_GATEWAY_DAEMON_RUNTIME;
 }
 
-function findGatewayEntrypoint(programArguments?: string[]): string | null {
+export function findGatewayEntrypoint(programArguments?: string[]): string | null {
   if (!programArguments || programArguments.length === 0) {
     return null;
   }
