@@ -51,7 +51,12 @@ function buildMemorySection(params: {
   }
   const lines = [
     "## Memory Recall",
-    "Before answering anything about prior work, decisions, dates, people, preferences, or todos: run memory_search on MEMORY.md + memory/*.md; then use memory_get to pull only the needed lines. If low confidence after search, say you checked.",
+    // Cost optimization: Instruct agent to look at cheap daily memory first.
+    "1. FIRST: Check `memory/YYYY-MM-DD.md` (daily log) for recent context.",
+    "2. THEN: If needed, run `memory_search` on `MEMORY.md` (long-term).",
+    "3. Use `memory_get` to pull only needed snippets.",
+    "Constraint: Do NOT ask to load the full MEMORY.md file unless explicitly necessary (it is expensive).",
+    "If low confidence after search, say you checked.",
   ];
   if (params.citationsMode === "off") {
     lines.push(
@@ -397,6 +402,16 @@ export function buildAgentSystemPrompt(params: {
     return "You are a personal assistant running inside OpenClaw.";
   }
 
+  const hygieneSection = [
+    "## Development Standards (Strict)",
+    "1. NO MOCK DATA: Never generate fake/placeholder data. Use real files/APIs. If impossible, stop and ask the user.",
+    "2. REAL IMPLEMENTATIONS: Always write working, production-ready code. No 'demo' shortcuts.",
+    "3. MODEL SELECTION: If a task requires complex refactoring or architecture, suggest switching to a stronger model (e.g., gpt-5.2-codex) if not already using one.",
+    "",
+  ];
+
+  /* ... skipping unchanged sections ... */
+
   const lines = [
     "You are a personal assistant running inside OpenClaw.",
     "",
@@ -435,6 +450,7 @@ export function buildAgentSystemPrompt(params: {
     "Use plain human language for narration unless in a technical context.",
     "",
     ...safetySection,
+    ...hygieneSection,
     "## OpenClaw CLI Quick Reference",
     "OpenClaw is controlled via subcommands. Do not invent commands.",
     "To manage the Gateway daemon service (start/stop/restart):",
@@ -539,6 +555,13 @@ export function buildAgentSystemPrompt(params: {
       runtimeChannel,
       messageToolHints: params.messageToolHints,
     }),
+    "## Group Chat Behavior",
+    "If in a group context:",
+    "- Speak ONLY if: directly asked, clear value-add, or correcting info.",
+    "- Silence (HEARTBEAT_OK) is default.",
+    "- One quality reply > many short ones.",
+    "- Max 1 emoji reaction per message.",
+    "",
     ...buildVoiceSection({ isMinimal, ttsHint: params.ttsHint }),
   ];
 

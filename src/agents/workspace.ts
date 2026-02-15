@@ -375,38 +375,31 @@ export async function ensureAgentWorkspace(params?: {
 async function resolveMemoryBootstrapEntries(
   resolvedDir: string,
 ): Promise<Array<{ name: WorkspaceBootstrapFileName; filePath: string }>> {
-  const candidates: WorkspaceBootstrapFileName[] = [
-    DEFAULT_MEMORY_FILENAME,
-    DEFAULT_MEMORY_ALT_FILENAME,
-  ];
+  // RULE: Never auto-load MEMORY.md at session start (it is for long-term storage only).
+  // Instead, load today's daily log: memory/YYYY-MM-DD.md
+  const today = new Date().toISOString().split("T")[0];
+  const dailyMemoryFile = `memory/${today}.md`;
+
+  // We treat the daily memory file as a valid bootstrap target, casting it to the type
+  // since the type definition might not include dynamic dates (which is fine for runtime).
+  // Ideally, WorkspaceBootstrapFileName should be broader, but for now we use the type system escape.
+
+  const dailyPath = path.join(resolvedDir, dailyMemoryFile);
   const entries: Array<{ name: WorkspaceBootstrapFileName; filePath: string }> = [];
-  for (const name of candidates) {
-    const filePath = path.join(resolvedDir, name);
-    try {
-      await fs.access(filePath);
-      entries.push({ name, filePath });
-    } catch {
-      // optional
-    }
-  }
-  if (entries.length <= 1) {
-    return entries;
+
+  try {
+    // Only verify access; we don't auto-create content here (agent handles writes)
+    await fs.access(dailyPath);
+    entries.push({
+      name: dailyMemoryFile as WorkspaceBootstrapFileName,
+      filePath: dailyPath,
+    });
+  } catch {
+    // Daily memory doesn't exist yet - that's standard for a fresh day.
+    // The agent will create it on first write.
   }
 
-  const seen = new Set<string>();
-  const deduped: Array<{ name: WorkspaceBootstrapFileName; filePath: string }> = [];
-  for (const entry of entries) {
-    let key = entry.filePath;
-    try {
-      key = await fs.realpath(entry.filePath);
-    } catch {}
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    deduped.push(entry);
-  }
-  return deduped;
+  return entries;
 }
 
 export async function loadWorkspaceBootstrapFiles(dir: string): Promise<WorkspaceBootstrapFile[]> {
