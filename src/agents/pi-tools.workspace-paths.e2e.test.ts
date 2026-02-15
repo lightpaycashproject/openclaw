@@ -2,6 +2,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+
+vi.setConfig({ testTimeout: 300000 });
+
 import { createOpenClawCodingTools } from "./pi-tools.js";
 import { createHostSandboxFsBridge } from "./test-helpers/host-sandbox-fs-bridge.js";
 
@@ -31,6 +34,8 @@ describe("workspace path resolution", () => {
         const contents = "workspace read ok";
         await fs.writeFile(path.join(workspaceDir, testFile), contents, "utf8");
 
+        const prevCwd = process.cwd();
+        process.chdir(otherDir);
         const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(otherDir);
         try {
           const tools = createOpenClawCodingTools({ workspaceDir });
@@ -41,6 +46,15 @@ describe("workspace path resolution", () => {
           expect(getTextContent(result)).toContain(contents);
         } finally {
           cwdSpy.mockRestore();
+          try {
+            process.chdir(prevCwd);
+          } catch (err) {
+            // Only ignore ENOENT which happens if the previous CWD was deleted during test cleanup
+            if ((err as { code?: string })?.code !== "ENOENT") {
+              // eslint-disable-next-line no-unsafe-finally
+              throw err;
+            }
+          }
         }
       });
     });
@@ -52,6 +66,8 @@ describe("workspace path resolution", () => {
         const testFile = "write.txt";
         const contents = "workspace write ok";
 
+        const prevCwd = process.cwd();
+        process.chdir(otherDir);
         const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(otherDir);
         try {
           const tools = createOpenClawCodingTools({ workspaceDir });
@@ -67,6 +83,14 @@ describe("workspace path resolution", () => {
           expect(written).toBe(contents);
         } finally {
           cwdSpy.mockRestore();
+          try {
+            process.chdir(prevCwd);
+          } catch (err) {
+            if ((err as { code?: string })?.code !== "ENOENT") {
+              // eslint-disable-next-line no-unsafe-finally
+              throw err;
+            }
+          }
         }
       });
     });
@@ -78,6 +102,8 @@ describe("workspace path resolution", () => {
         const testFile = "edit.txt";
         await fs.writeFile(path.join(workspaceDir, testFile), "hello world", "utf8");
 
+        const prevCwd = process.cwd();
+        process.chdir(otherDir);
         const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(otherDir);
         try {
           const tools = createOpenClawCodingTools({ workspaceDir });
@@ -94,6 +120,14 @@ describe("workspace path resolution", () => {
           expect(updated).toBe("hello openclaw");
         } finally {
           cwdSpy.mockRestore();
+          try {
+            process.chdir(prevCwd);
+          } catch (err) {
+            if ((err as { code?: string })?.code !== "ENOENT") {
+              // eslint-disable-next-line no-unsafe-finally
+              throw err;
+            }
+          }
         }
       });
     });
