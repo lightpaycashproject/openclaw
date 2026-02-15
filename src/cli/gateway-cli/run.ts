@@ -353,7 +353,7 @@ export function addGatewayRunCommand(cmd: Command): Command {
     .option("--compact", 'Alias for "--ws-log compact"', false)
     .option("--raw-stream", "Log raw model stream events to jsonl", false)
     .option("--raw-stream-path <path>", "Raw stream jsonl path")
-    .action(async (opts) => {
-      await runGatewayCommand(opts);
+    .action(async (_opts, cmd: Command) => {
+      await runGatewayCommand(cmd.optsWithGlobals());
     });
 }
