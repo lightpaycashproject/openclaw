@@ -17,6 +17,7 @@ import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-ke
 import {
   ErrorCodes,
   errorShape,
+  formatValidationErrors,
   validateSessionsCompactParams,
   validateSessionsDeleteParams,
   validateSessionsListParams,
@@ -29,6 +30,7 @@ import {
   archiveFileOnDisk,
   archiveSessionTranscripts,
   listSessionsFromStore,
+  listSessionsFromStoreAsync,
   loadCombinedSessionStoreForGateway,
   loadSessionEntry,
   pruneLegacyStoreKeys,
@@ -140,14 +142,23 @@ async function ensureSessionRuntimeCleanup(params: {
 }
 
 export const sessionsHandlers: GatewayRequestHandlers = {
-  "sessions.list": ({ params, respond }) => {
-    if (!assertValidParams(params, validateSessionsListParams, "sessions.list", respond)) {
+  // Issue #6628: Use async version to avoid blocking event loop during file I/O
+  "sessions.list": async ({ params, respond }) => {
+    if (!validateSessionsListParams(params)) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `invalid sessions.list params: ${formatValidationErrors(validateSessionsListParams.errors)}`,
+        ),
+      );
       return;
     }
     const p = params;
     const cfg = loadConfig();
     const { storePath, store } = loadCombinedSessionStoreForGateway(cfg);
-    const result = listSessionsFromStore({
+    const result = await listSessionsFromStoreAsync({
       cfg,
       storePath,
       store,
