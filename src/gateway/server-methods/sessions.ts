@@ -356,6 +356,30 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       reason: "reset",
     });
     respond(true, { ok: true, key: target.canonicalKey, entry: next }, undefined);
+
+    // Fire internal hooks for the reset/new command (async, non-blocking).
+    // This matches the hook dispatch in commands-core.ts handleCommands()
+    // which only fires for message-based /new (channels), not RPC resets (TUI/webchat).
+    // Fixes: https://github.com/openclaw/openclaw/issues/6799
+    const canonicalKey = target.canonicalKey;
+    void (async () => {
+      try {
+        const hookEvent = createInternalHookEvent("command", "new", canonicalKey, {
+          previousSessionEntry: previousSessionEntry
+            ? { ...previousSessionEntry, sessionFile: previousSessionFile }
+            : undefined,
+          sessionEntry: next,
+          commandSource: "rpc",
+          cfg,
+        });
+        await triggerInternalHook(hookEvent);
+      } catch (err) {
+        console.error(
+          "[sessions.reset] Hook dispatch failed:",
+          err instanceof Error ? (err.stack ?? err.message) : String(err),
+        );
+      }
+    })();
   },
   "sessions.delete": async ({ params, respond }) => {
     if (!assertValidParams(params, validateSessionsDeleteParams, "sessions.delete", respond)) {
