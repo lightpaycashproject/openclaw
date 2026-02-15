@@ -10,6 +10,7 @@ export const PROVIDER_LABELS: Record<UsageProviderId, string> = {
   "google-antigravity": "Antigravity",
   minimax: "MiniMax",
   "openai-codex": "Codex",
+  openrouter: "OpenRouter",
   xiaomi: "Xiaomi",
   zai: "z.ai",
 };
@@ -21,6 +22,7 @@ export const usageProviders: UsageProviderId[] = [
   "google-antigravity",
   "minimax",
   "openai-codex",
+  "openrouter",
   "xiaomi",
   "zai",
 ];

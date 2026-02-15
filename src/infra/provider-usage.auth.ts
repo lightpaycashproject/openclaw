@@ -132,6 +132,41 @@ function resolveProviderApiKeyFromConfigAndStore(params: {
   return undefined;
 }
 
+function resolveOpenRouterApiKey(): string | undefined {
+  const envDirect = process.env.OPENROUTER_API_KEY?.trim();
+  if (envDirect) {
+    return envDirect;
+  }
+
+  const envResolved = resolveEnvApiKey("openrouter");
+  if (envResolved?.apiKey) {
+    return envResolved.apiKey;
+  }
+
+  const cfg = loadConfig();
+  const key = getCustomProviderApiKey(cfg, "openrouter");
+  if (key) {
+    return key;
+  }
+
+  const store = ensureAuthProfileStore();
+  const apiProfile = listProfilesForProvider(store, "openrouter").find((id) => {
+    const cred = store.profiles[id];
+    return cred?.type === "api_key" || cred?.type === "token";
+  });
+  if (!apiProfile) {
+    return undefined;
+  }
+  const cred = store.profiles[apiProfile];
+  if (cred?.type === "api_key" && cred.key?.trim()) {
+    return cred.key.trim();
+  }
+  if (cred?.type === "token" && cred.token?.trim()) {
+    return cred.token.trim();
+  }
+  return undefined;
+}
+
 async function resolveOAuthToken(params: {
   provider: UsageProviderId;
   agentDir?: string;
@@ -244,6 +279,13 @@ export async function resolveProviderAuths(params: {
     }
     if (provider === "xiaomi") {
       const apiKey = resolveXiaomiApiKey();
+      if (apiKey) {
+        auths.push({ provider, token: apiKey });
+      }
+      continue;
+    }
+    if (provider === "openrouter") {
+      const apiKey = resolveOpenRouterApiKey();
       if (apiKey) {
         auths.push({ provider, token: apiKey });
       }
