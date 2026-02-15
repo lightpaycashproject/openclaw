@@ -11,6 +11,27 @@ import type { ChannelHeartbeatVisibilityConfig } from "./types.channels.js";
 import type { DmConfig, ProviderCommandsConfig } from "./types.messages.js";
 import type { GroupToolPolicyBySenderConfig, GroupToolPolicyConfig } from "./types.tools.js";
 
+/** Tool display override for placeholder. */
+export type ToolDisplayConfig = {
+  emoji?: string;
+  label?: string;
+};
+
+/**
+ * Placeholder message config - shows a temporary "thinking" message
+ * while processing, then deletes it when the response is ready.
+ */
+export type TelegramPlaceholderConfig = {
+  /** Enable placeholder messages. Default: false. */
+  enabled?: boolean;
+  /** Custom messages to show while thinking. Randomly selected. */
+  messages?: string[];
+  /** Delete placeholder when response is ready. Default: true. */
+  deleteOnResponse?: boolean;
+  /** Tool display overrides. Key is tool name, value is {emoji, label}. */
+  toolDisplay?: Record<string, ToolDisplayConfig>;
+};
+
 export type TelegramActionConfig = {
   reactions?: boolean;
   sendMessage?: boolean;
@@ -146,6 +167,8 @@ export type TelegramAccountConfig = {
    * Telegram expects unicode emoji (e.g., "👀") rather than shortcodes.
    */
   ackReaction?: string;
+  /** Placeholder message shown while processing (thinking indicator). */
+  placeholder?: TelegramPlaceholderConfig;
 };
 
 export type TelegramTopicConfig = {
