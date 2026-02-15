@@ -253,10 +253,7 @@ describe("runGatewayUpdate", () => {
       "pnpm install": { stdout: "" },
       "pnpm build": { stdout: "" },
       "pnpm ui:build": { stdout: "" },
-      [`${process.execPath} ${path.join(tempDir, "openclaw.mjs")} doctor --non-interactive --fix`]:
-        {
-          stdout: "",
-        },
+      "pnpm openclaw doctor --non-interactive": { stdout: "" },
     });
 
     const result = await runGatewayUpdate({

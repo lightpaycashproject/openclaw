@@ -474,7 +474,11 @@ export async function runGatewayUpdate(opts: UpdateRunnerOptions = {}): Promise<
       }
 
       const fetchStep = await runStep(
-        step("git fetch", ["git", "-C", gitRoot, "fetch", "--all", "--prune", "--tags"], gitRoot),
+        step(
+          "git fetch",
+          ["git", "-C", gitRoot, "fetch", "--all", "--prune", "--tags", "--force"],
+          gitRoot,
+        ),
       );
       steps.push(fetchStep);
 
@@ -660,7 +664,11 @@ export async function runGatewayUpdate(opts: UpdateRunnerOptions = {}): Promise<
       }
     } else {
       const fetchStep = await runStep(
-        step("git fetch", ["git", "-C", gitRoot, "fetch", "--all", "--prune", "--tags"], gitRoot),
+        step(
+          "git fetch",
+          ["git", "-C", gitRoot, "fetch", "--all", "--prune", "--tags", "--force"],
+          gitRoot,
+        ),
       );
       steps.push(fetchStep);
       if (fetchStep.exitCode !== 0) {
