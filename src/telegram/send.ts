@@ -21,14 +21,14 @@ import { normalizePollInput, type PollInput } from "../polls.js";
 import { loadWebMedia } from "../web/media.js";
 import { type ResolvedTelegramAccount, resolveTelegramAccount } from "./accounts.js";
 import { withTelegramApiErrorLogging } from "./api-logging.js";
-import { buildTelegramThreadParams } from "./bot/helpers.js";
 import type { TelegramInlineButtons } from "./button-types.js";
+import { buildTelegramThreadParams, type TelegramThreadSpec } from "./bot/helpers.js";
 import { splitTelegramCaption } from "./caption.js";
 import { resolveTelegramFetch } from "./fetch.js";
 import { renderTelegramHtmlText } from "./format.js";
 import { isRecoverableTelegramNetworkError } from "./network-errors.js";
 import { makeProxyFetch } from "./proxy.js";
-import { recordSentMessage } from "./sent-message-cache.js";
+import { isMessageContentUnchanged, recordSentMessage } from "./sent-message-cache.js";
 import { parseTelegramTarget, stripTelegramInternalPrefixes } from "./targets.js";
 import { resolveTelegramVoiceSend } from "./voice.js";
 
@@ -87,6 +87,18 @@ const MESSAGE_NOT_MODIFIED_RE =
   /400:\s*Bad Request:\s*message is not modified|MESSAGE_NOT_MODIFIED/i;
 const CHAT_NOT_FOUND_RE = /400: Bad Request: chat not found/i;
 const diagLogger = createSubsystemLogger("telegram/diagnostic");
+
+function resolveTelegramThreadScope(
+  chatId: string,
+): Extract<TelegramThreadSpec["scope"], "dm" | "forum"> {
+  // Telegram chat ids are numeric strings for DMs (positive) and groups/supergroups (negative, often -100...).
+  // Non-numeric targets like @username are not DMs; treat them like forum/group scope.
+  const asNumber = Number(chatId);
+  if (Number.isFinite(asNumber)) {
+    return asNumber > 0 ? "dm" : "forum";
+  }
+  return "forum";
+}
 
 function createTelegramHttpLogger(cfg: ReturnType<typeof loadConfig>) {
   const enabled = isDiagnosticFlagEnabled("telegram.http", cfg);
@@ -437,13 +449,28 @@ export async function sendMessageTelegram(
   const mediaUrl = opts.mediaUrl?.trim();
   const replyMarkup = buildInlineKeyboard(opts.buttons);
 
-  const threadParams = buildTelegramThreadReplyParams({
-    targetMessageThreadId: target.messageThreadId,
-    messageThreadId: opts.messageThreadId,
-    chatType: target.chatType,
-    replyToMessageId: opts.replyToMessageId,
-    quoteText: opts.quoteText,
-  });
+  // Build optional params for forum topics and reply threading.
+  // Only include these if actually provided to keep API calls clean.
+  const messageThreadId =
+    opts.messageThreadId != null ? opts.messageThreadId : target.messageThreadId;
+
+  const threadSpec: TelegramThreadSpec | undefined =
+    messageThreadId != null
+      ? { id: messageThreadId, scope: resolveTelegramThreadScope(chatId) }
+      : undefined;
+  const threadIdParams = buildTelegramThreadParams(threadSpec);
+  const threadParams: Record<string, unknown> = threadIdParams ? { ...threadIdParams } : {};
+  const quoteText = opts.quoteText?.trim();
+  if (opts.replyToMessageId != null) {
+    if (quoteText) {
+      threadParams.reply_parameters = {
+        message_id: Math.trunc(opts.replyToMessageId),
+        quote: quoteText,
+      };
+    } else {
+      threadParams.reply_to_message_id = Math.trunc(opts.replyToMessageId);
+    }
+  }
   const hasThreadParams = Object.keys(threadParams).length > 0;
   const requestWithDiag = createTelegramRequestWithDiag({
     cfg,
@@ -662,7 +689,7 @@ export async function sendMessageTelegram(
     const mediaMessageId = String(result?.message_id ?? "unknown");
     const resolvedChatId = String(result?.chat?.id ?? chatId);
     if (result?.message_id) {
-      recordSentMessage(chatId, result.message_id);
+      recordSentMessage(chatId, result.message_id, htmlCaption);
     }
     recordChannelActivity({
       channel: "telegram",
@@ -704,7 +731,7 @@ export async function sendMessageTelegram(
   const res = await sendTelegramText(text, textParams, opts.plainText);
   const messageId = String(res?.message_id ?? "unknown");
   if (res?.message_id) {
-    recordSentMessage(chatId, res.message_id);
+    // Already recorded inside sendTelegramText helper
   }
   recordChannelActivity({
     channel: "telegram",
@@ -827,6 +854,9 @@ export async function editMessageTelegram(
     accountId: account.accountId,
   });
   const htmlText = renderTelegramHtmlText(text, { textMode, tableMode });
+  if (isMessageContentUnchanged(chatId, messageId, htmlText)) {
+    return { ok: true, messageId: String(messageId), chatId };
+  }
 
   // Reply markup semantics:
   // - buttons === undefined → don't send reply_markup (keep existing)
@@ -881,6 +911,7 @@ export async function editMessageTelegram(
     }
   }
 
+  recordSentMessage(chatId, messageId, htmlText);
   logVerbose(`[telegram] Edited message ${messageId} in chat ${chatId}`);
   return { ok: true, messageId: String(messageId), chatId };
 }

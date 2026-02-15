@@ -29,7 +29,7 @@ function cleanupExpired(entry: CacheEntry): void {
 /**
  * Record a message ID as sent by the bot.
  */
-export function recordSentMessage(chatId: number | string, messageId: number): void {
+export function recordSentMessage(chatId: number | string, messageId: number, htmlCaption: string | undefined): void {
   const key = getChatKey(chatId);
   let entry = sentMessages.get(key);
   if (!entry) {

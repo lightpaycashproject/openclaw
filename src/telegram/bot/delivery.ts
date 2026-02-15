@@ -22,6 +22,7 @@ import {
   wrapFileReferencesInHtml,
 } from "../format.js";
 import { buildInlineKeyboard } from "../send.js";
+import { isMessageContentUnchanged, recordSentMessage } from "../sent-message-cache.js";
 import { cacheSticker, getCachedSticker } from "../sticker-cache.js";
 import { resolveTelegramVoiceSend } from "../voice.js";
 import {
@@ -54,6 +55,8 @@ export async function deliverReplies(params: {
   linkPreview?: boolean;
   /** Optional quote text for Telegram reply_parameters. */
   replyQuoteText?: string;
+  /** Optional message ID to edit for the first chunk instead of sending a new message. */
+  editMessageId?: number;
 }): Promise<{ delivered: boolean }> {
   const {
     replies,
@@ -65,6 +68,7 @@ export async function deliverReplies(params: {
     thread,
     linkPreview,
     replyQuoteText,
+    editMessageId,
   } = params;
   const chunkMode = params.chunkMode ?? "length";
   let hasReplied = false;
@@ -117,7 +121,8 @@ export async function deliverReplies(params: {
       const chunks = chunkText(reply.text || "");
       for (let i = 0; i < chunks.length; i += 1) {
         const chunk = chunks[i];
-        if (!chunk) {
+        // Skip empty chunks - Telegram rejects messages with empty text.
+        if (!chunk || !chunk.html?.trim()) {
           continue;
         }
         // Only attach buttons to the first chunk.
@@ -125,6 +130,7 @@ export async function deliverReplies(params: {
         await sendTelegramText(bot, chatId, chunk.html, runtime, {
           replyToMessageId:
             replyToId && (replyToMode === "all" || !hasReplied) ? replyToId : undefined,
+          editMessageId: i === 0 ? editMessageId : undefined,
           replyQuoteText,
           thread,
           textMode: "html",
@@ -541,8 +547,14 @@ async function sendTelegramText(
     plainText?: string;
     linkPreview?: boolean;
     replyMarkup?: ReturnType<typeof buildInlineKeyboard>;
+    editMessageId?: number;
   },
 ): Promise<number | undefined> {
+  // Telegram rejects messages with empty text. Return early to avoid API errors.
+  if (!text?.trim()) {
+    logVerbose("telegram sendTelegramText skipped: empty text");
+    return undefined;
+  }
   const baseParams = buildTelegramSendParams({
     replyToMessageId: opts?.replyToMessageId,
     thread: opts?.thread,
@@ -552,22 +564,40 @@ async function sendTelegramText(
   const linkPreviewOptions = linkPreviewEnabled ? undefined : { is_disabled: true };
   const textMode = opts?.textMode ?? "markdown";
   const htmlText = textMode === "html" ? text : markdownToTelegramHtml(text);
+  if (opts?.editMessageId && isMessageContentUnchanged(chatId, opts.editMessageId, htmlText)) {
+    return opts.editMessageId;
+  }
   try {
-    const res = await withTelegramApiErrorLogging({
-      operation: "sendMessage",
+    const res = await withTelegramApiErrorLogging<any>({
+      operation: opts?.editMessageId ? "editMessageText" : "sendMessage",
       runtime,
       shouldLog: (err) => !PARSE_ERR_RE.test(formatErrorMessage(err)),
-      fn: () =>
-        bot.api.sendMessage(chatId, htmlText, {
+      fn: () => {
+        if (opts?.editMessageId) {
+          return bot.api.editMessageText(chatId, opts.editMessageId, htmlText, {
+            parse_mode: "HTML",
+            ...(linkPreviewOptions ? { link_preview_options: linkPreviewOptions } : {}),
+            ...(opts?.replyMarkup ? { reply_markup: opts.replyMarkup } : {}),
+          });
+        }
+        return bot.api.sendMessage(chatId, htmlText, {
           parse_mode: "HTML",
           ...(linkPreviewOptions ? { link_preview_options: linkPreviewOptions } : {}),
           ...(opts?.replyMarkup ? { reply_markup: opts.replyMarkup } : {}),
           ...baseParams,
-        }),
+        });
+      },
     });
-    return res.message_id;
+    const messageId = typeof res === "object" ? res.message_id : opts?.editMessageId;
+    if (messageId) {
+      recordSentMessage(chatId, messageId, htmlText);
+    }
+    return messageId;
   } catch (err) {
     const errText = formatErrorMessage(err);
+    if (errText.includes("message is not modified")) {
+      return typeof opts?.editMessageId === "number" ? opts.editMessageId : undefined;
+    }
     if (PARSE_ERR_RE.test(errText)) {
       runtime.log?.(`telegram HTML parse failed; retrying without formatting: ${errText}`);
       const fallbackText = opts?.plainText ?? text;
@@ -581,6 +611,9 @@ async function sendTelegramText(
             ...baseParams,
           }),
       });
+      if (res?.message_id) {
+        recordSentMessage(chatId, res.message_id, fallbackText);
+      }
       return res.message_id;
     }
     throw err;

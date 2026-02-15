@@ -101,6 +101,7 @@ function renderTelegramHtml(ir: MarkdownIR): string {
       code_block: { open: "<pre><code>", close: "</code></pre>" },
       spoiler: { open: "<tg-spoiler>", close: "</tg-spoiler>" },
       blockquote: { open: "<blockquote>", close: "</blockquote>" },
+      thought: { open: "<blockquote expandable>", close: "</blockquote>" },
     },
     escapeText: escapeHtml,
     buildLink: buildTelegramLink,

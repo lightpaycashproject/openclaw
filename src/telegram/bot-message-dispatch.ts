@@ -9,10 +9,11 @@ import { resolveDefaultModelForAgent } from "../agents/model-selection.js";
 import { EmbeddedBlockChunker } from "../agents/pi-embedded-block-chunker.js";
 import { resolveChunkMode } from "../auto-reply/chunk.js";
 import { clearHistoryEntriesIfEnabled } from "../auto-reply/reply/history.js";
+import { createPlaceholderController } from "../auto-reply/reply/placeholder.js";
 import { dispatchReplyWithBufferedBlockDispatcher } from "../auto-reply/reply/provider-dispatcher.js";
 import { removeAckReactionAfterReply } from "../channels/ack-reactions.js";
 import { logAckFailure, logTypingFailure } from "../channels/logging.js";
-import { createReplyPrefixOptions } from "../channels/reply-prefix.js";
+import { createReplyPrefixContext } from "../channels/reply-prefix.js";
 import { createTypingCallbacks } from "../channels/typing.js";
 import { resolveMarkdownTableMode } from "../config/markdown-tables.js";
 import type { OpenClawConfig, ReplyToMode, TelegramAccountConfig } from "../config/types.js";
@@ -26,8 +27,11 @@ import type { TelegramStreamMode } from "./bot/types.js";
 import type { TelegramInlineButtons } from "./button-types.js";
 import { resolveTelegramDraftStreamingChunking } from "./draft-chunking.js";
 import { createTelegramDraftStream } from "./draft-stream.js";
-import { editMessageTelegram } from "./send.js";
+import { markdownToTelegramHtml } from "./format.js";
+import { sendMessageTelegram, deleteMessageTelegram, editMessageTelegram } from "./send.js";
 import { cacheSticker, describeStickerImage } from "./sticker-cache.js";
+import { loadSessionStore } from "../config/sessions/store.ts";
+import { resolveStorePath } from "../config/sessions.ts";
 
 const EMPTY_RESPONSE_FALLBACK = "No response generated. Please try again.";
 
@@ -118,7 +122,269 @@ export const dispatchTelegramMessage = async ({
   const mediaLocalRoots = getAgentScopedMediaLocalRoots(cfg, route.agentId);
   let lastPartialText = "";
   let draftText = "";
-  let hasStreamedMessage = false;
+  let draftReasoning = "";
+  let draftToolStatus = "";
+  let draftModelStatus = "";
+  let lastToolName = "";
+  let lastToolArgs = "";
+  let isStreaming = true;
+
+  const sessionStorePath = resolveStorePath(cfg.session?.store, {
+    agentId: route.agentId,
+  });
+  const sessionRecord = loadSessionStore(sessionStorePath);
+  const sessionEntry = sessionRecord[context.ctxPayload?.SessionKey ?? ""];
+  let lastShownModel = sessionEntry?.model
+    ? `${sessionEntry.modelProvider}/${sessionEntry.model}`
+    : "";
+
+  const escapeHtml = (unsafe: string) => {
+    return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  };
+
+  const TOOL_SNIPPET_MAX_CHARS = 1200;
+  const TOOL_SNIPPET_MAX_LINES = 40;
+  const LANGUAGE_BY_EXTENSION: Record<string, string> = {
+    bash: "bash",
+    c: "c",
+    cc: "cpp",
+    cpp: "cpp",
+    cs: "csharp",
+    css: "css",
+    diff: "diff",
+    go: "go",
+    h: "c",
+    hpp: "cpp",
+    html: "html",
+    java: "java",
+    js: "javascript",
+    json: "json",
+    jsx: "jsx",
+    kt: "kotlin",
+    md: "markdown",
+    mjs: "javascript",
+    py: "python",
+    rb: "ruby",
+    rs: "rust",
+    sh: "bash",
+    sql: "sql",
+    swift: "swift",
+    toml: "toml",
+    ts: "typescript",
+    tsx: "tsx",
+    txt: "text",
+    yml: "yaml",
+    yaml: "yaml",
+  };
+
+  const unescapeToolText = (text: string) => {
+    if (text.includes("\n")) {
+      return text;
+    }
+    if (!/\\[ntr]/.test(text)) {
+      return text;
+    }
+    return text.replace(/\\n/g, "\n").replace(/\\t/g, "\t").replace(/\\r/g, "\r");
+  };
+
+  const truncateToolSnippet = (text: string) => {
+    const normalized = text.replace(/\r\n/g, "\n");
+    let lines = normalized.split("\n");
+    let truncated = false;
+    if (lines.length > TOOL_SNIPPET_MAX_LINES) {
+      lines = lines.slice(0, TOOL_SNIPPET_MAX_LINES);
+      truncated = true;
+    }
+    let joined = lines.join("\n");
+    if (joined.length > TOOL_SNIPPET_MAX_CHARS) {
+      joined = joined.slice(0, TOOL_SNIPPET_MAX_CHARS);
+      truncated = true;
+    }
+    return { text: joined, truncated };
+  };
+
+  const inferToolLanguage = (filePath?: string) => {
+    if (!filePath) {
+      return undefined;
+    }
+    const basename = filePath.split("/").pop() ?? filePath;
+    const parts = basename.split(".");
+    if (parts.length < 2) {
+      return undefined;
+    }
+    const ext = parts.at(-1)?.toLowerCase();
+    return ext ? LANGUAGE_BY_EXTENSION[ext] : undefined;
+  };
+
+  const formatCodeBlock = (content: string, language?: string) => {
+    const { text, truncated } = truncateToolSnippet(unescapeToolText(content));
+    const langClass = language ? ` class="language-${language}"` : "";
+    const suffix = truncated ? "\n<i>(truncated)</i>" : "";
+    return `\n<pre><code${langClass}>${escapeHtml(text)}</code></pre>${suffix}`;
+  };
+
+  const formatToolArgs = (toolName: string, args: any) => {
+    if (!args || typeof args !== "object" || Object.keys(args).length === 0) {
+      return "";
+    }
+
+    const getArg = (...keys: string[]) => {
+      for (const k of keys) {
+        if (typeof args[k] === "string") {
+          return args[k];
+        }
+      }
+      return null;
+    };
+
+    // Web Search
+    if (/^(search|google|duckduckgo)/i.test(toolName)) {
+      const q = getArg("query", "q", "Query");
+      if (q) {
+        return `: ${escapeHtml(q)}`;
+      }
+    }
+
+    // URL/Browser
+    if (/^(browser|read_url|open_url)/i.test(toolName)) {
+      const action = getArg("action", "Action");
+      const url = getArg("url", "Url", "URL", "target", "targetUrl");
+
+      // Handle action-only or action-focused calls
+      if (action && !url) {
+        return `: ${escapeHtml(action)}`;
+      }
+
+      if (url) {
+        try {
+          const u = new URL(url);
+          // Detect search engines
+          if (u.hostname.includes("google.") && u.searchParams.has("q")) {
+            return `: Searching Google: ${escapeHtml(u.searchParams.get("q") ?? "")}`;
+          }
+          if (u.hostname.includes("duckduckgo.") && u.searchParams.has("q")) {
+            return `: Searching DuckDuckGo: ${escapeHtml(u.searchParams.get("q") ?? "")}`;
+          }
+        } catch {
+          // ignore invalid URLs
+        }
+
+        // If it's an 'open' action, just show the URL. For others, maybe prefix?
+        // But readability is key. Just the URL is usually enough context.
+        return `: Browsing: ${escapeHtml(url)}`;
+      }
+    }
+
+    if (toolName === "read") {
+      const filePath = getArg("path", "file_path");
+      if (filePath) {
+        const offset =
+          typeof args.offset === "number"
+            ? args.offset
+            : typeof args.offset === "string"
+              ? Number(args.offset)
+              : undefined;
+        const limit =
+          typeof args.limit === "number"
+            ? args.limit
+            : typeof args.limit === "string"
+              ? Number(args.limit)
+              : undefined;
+        const startLine = Number.isFinite(offset) ? Number(offset) : undefined;
+        const endLine =
+          Number.isFinite(limit) && Number.isFinite(startLine)
+            ? Number(startLine) + Number(limit) - 1
+            : undefined;
+        const range =
+          startLine != null ? ` (lines ${startLine}${endLine ? `-${endLine}` : ""})` : "";
+        return `: Reading <code>${escapeHtml(filePath)}</code>${range}`;
+      }
+    }
+
+    if (toolName === "write") {
+      const filePath = getArg("path", "file_path");
+      const content = getArg("content", "text");
+      if (filePath && typeof content === "string") {
+        const language = inferToolLanguage(filePath);
+        return `: Writing <code>${escapeHtml(filePath)}</code>${formatCodeBlock(
+          content,
+          language,
+        )}`;
+      }
+    }
+
+    if (toolName === "edit") {
+      const filePath = getArg("path", "file_path");
+      const content = getArg("newText", "new_string");
+      if (filePath && typeof content === "string") {
+        const language = inferToolLanguage(filePath);
+        return `: Editing <code>${escapeHtml(filePath)}</code>${formatCodeBlock(
+          content,
+          language,
+        )}`;
+      }
+    }
+
+    // Browser Subagent
+    if (toolName === "browser_subagent") {
+      const task = getArg("Task", "task");
+      if (task) {
+        return `: ${escapeHtml(task)}`;
+      }
+    }
+
+    // Command Execution
+    if (/^(run_command|exec|terminal|execute)/i.test(toolName)) {
+      const cmd = getArg("command", "CommandLine", "cmd", "code");
+      if (cmd) {
+        // If command is multi-line, use pre block for better readability
+        if (cmd.includes("\n") || cmd.length > 50) {
+          return `:\n<pre><code>${escapeHtml(cmd)}</code></pre>`;
+        }
+        return `: <code>${escapeHtml(cmd)}</code>`;
+      }
+    }
+
+    return `: <code>${escapeHtml(JSON.stringify(args))}</code>`;
+  };
+
+  const updateDraftCombined = () => {
+    if (!draftStream) {
+      return;
+    }
+    let combined = "";
+    if (draftModelStatus) {
+      combined += `${draftModelStatus}\n\n`;
+    }
+    if (draftToolStatus) {
+      combined += `${draftToolStatus}\n\n`;
+    }
+
+    // Show thinking indicator if we're streaming and either:
+    // 1. We have no content at all (initial thinking)
+    // 2. We just finished a tool and are waiting for the AI to process the result
+    const justFinishedTool =
+      draftToolStatus.includes("finished") || draftToolStatus.includes("failed");
+    if (isStreaming && !draftText && !draftReasoning && (!draftToolStatus || justFinishedTool)) {
+      combined += "<i>Thinking...</i>";
+    }
+
+    if (draftReasoning) {
+      // Use markdownToTelegramHtml which already uses <blockquote expandable> for thoughts/reasoning
+      combined += `${markdownToTelegramHtml(draftReasoning)}\n`;
+    }
+
+    if (draftText) {
+      combined += markdownToTelegramHtml(draftText);
+    }
+
+    // Add a blinking cursor (dot) if we're still streaming content
+    if (isStreaming && (draftText || draftReasoning)) {
+      combined += " ●";
+    }
+
+    draftStream.update(combined.trim());
+  };
   const updateDraftFromPartial = (text?: string) => {
     if (!draftStream || !text) {
       return;
@@ -140,16 +406,20 @@ export const dispatchTelegramMessage = async ({
         return;
       }
       lastPartialText = text;
-      draftStream.update(text);
+      draftText = text;
+      updateDraftCombined();
       return;
     }
     let delta = text;
     if (text.startsWith(lastPartialText)) {
       delta = text.slice(lastPartialText.length);
     } else {
-      // Streaming buffer reset (or non-monotonic stream). Start fresh.
+      // Non-monotonic stream (e.g. sanitizer changed output shape).
+      // Recover by using the full `text` as the new baseline instead of
+      // losing all previously accumulated content.
       draftChunker?.reset();
       draftText = "";
+      delta = text;
     }
     lastPartialText = text;
     if (!delta) {
@@ -157,7 +427,7 @@ export const dispatchTelegramMessage = async ({
     }
     if (!draftChunker) {
       draftText = text;
-      draftStream.update(draftText);
+      updateDraftCombined();
       return;
     }
     draftChunker.append(delta);
@@ -165,7 +435,7 @@ export const dispatchTelegramMessage = async ({
       force: false,
       emit: (chunk) => {
         draftText += chunk;
-        draftStream.update(draftText);
+        updateDraftCombined();
       },
     });
   };
@@ -173,6 +443,7 @@ export const dispatchTelegramMessage = async ({
     if (!draftStream) {
       return;
     }
+    isStreaming = false;
     if (draftChunker?.hasBuffered()) {
       draftChunker.drain({
         force: true,
@@ -181,8 +452,8 @@ export const dispatchTelegramMessage = async ({
         },
       });
       draftChunker.reset();
-      if (draftText) {
-        draftStream.update(draftText);
+      if (draftText || draftReasoning || draftToolStatus) {
+        updateDraftCombined();
       }
     }
     await draftStream.flush();
@@ -195,7 +466,7 @@ export const dispatchTelegramMessage = async ({
         ? true
         : undefined;
 
-  const { onModelSelected, ...prefixOptions } = createReplyPrefixOptions({
+  const prefixContext = createReplyPrefixContext({
     cfg,
     agentId: route.agentId,
     channel: "telegram",

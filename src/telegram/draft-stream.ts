@@ -24,6 +24,7 @@ export function createTelegramDraftStream(params: {
   throttleMs?: number;
   /** Minimum chars before sending first message (debounce for push notifications) */
   minInitialChars?: number;
+  parse_mode?: "HTML" | "MarkdownV2" | "Markdown";
   log?: (message: string) => void;
   warn?: (message: string) => void;
 }): TelegramDraftStream {
@@ -44,6 +45,7 @@ export function createTelegramDraftStream(params: {
   let lastSentText = "";
   let stopped = false;
   let isFinal = false;
+  let sentMessageId: number | undefined;
 
   const sendOrEditStreamMessage = async (text: string): Promise<boolean> => {
     // Allow final flush even if stopped (e.g., after clear()).
@@ -57,6 +59,7 @@ export function createTelegramDraftStream(params: {
     if (trimmed.length > maxChars) {
       // Telegram text messages/edits cap at 4096 chars.
       // Stop streaming once we exceed the cap to avoid repeated API failures.
+      // Drafts are capped. Stop streaming once we exceed the cap.
       stopped = true;
       params.warn?.(
         `telegram stream preview stopped (text length ${trimmed.length} > ${maxChars})`,
@@ -76,20 +79,23 @@ export function createTelegramDraftStream(params: {
 
     lastSentText = trimmed;
     try {
-      if (typeof streamMessageId === "number") {
-        await params.api.editMessageText(chatId, streamMessageId, trimmed);
-        return true;
+      if (sentMessageId) {
+        await params.api.editMessageText(chatId, sentMessageId, trimmed, {
+          ...threadParams,
+          parse_mode: params.parse_mode,
+        });
+      } else {
+        const msg = await params.api.sendMessage(chatId, trimmed, {
+          ...threadParams,
+          parse_mode: params.parse_mode,
+        });
+        sentMessageId = msg.message_id;
       }
-      const sent = await params.api.sendMessage(chatId, trimmed, replyParams);
-      const sentMessageId = sent?.message_id;
-      if (typeof sentMessageId !== "number" || !Number.isFinite(sentMessageId)) {
-        stopped = true;
-        params.warn?.("telegram stream preview stopped (missing message id from sendMessage)");
+    } catch (err) {
+      const msg = String(err);
+      if (msg.includes("message is not modified")) {
         return false;
       }
-      streamMessageId = Math.trunc(sentMessageId);
-      return true;
-    } catch (err) {
       stopped = true;
       params.warn?.(
         `telegram stream preview failed: ${err instanceof Error ? err.message : String(err)}`,
