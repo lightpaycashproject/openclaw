@@ -2,12 +2,22 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import type { AuthProfileStore } from "./auth-profiles.js";
-import { saveAuthProfileStore } from "./auth-profiles.js";
+import type { runWithModelFallback as runWithModelFallbackType } from "./model-fallback.js";
+import {
+  ensureAuthProfileStore,
+  resolveAuthProfileOrder,
+  saveAuthProfileStore,
+} from "./auth-profiles.js";
 import { AUTH_STORE_VERSION } from "./auth-profiles/constants.js";
-import { runWithModelFallback } from "./model-fallback.js";
+
+let runWithModelFallback: typeof runWithModelFallbackType;
+
+beforeEach(async () => {
+  runWithModelFallback = (await import("./model-fallback.js")).runWithModelFallback;
+});
 
 function makeCfg(overrides: Partial<OpenClawConfig> = {}): OpenClawConfig {
   return {
@@ -235,6 +245,80 @@ describe("runWithModelFallback", () => {
       expect(result.result).toBe("ok");
       expect(run.mock.calls).toEqual([[provider, "m1"]]);
       expect(result.attempts).toEqual([]);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("skips model-specific cooldown and falls back", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-auth-"));
+    const provider = "google-antigravity";
+    const profileId = `${provider}:default`;
+    const modelId = "ag-model";
+
+    const store: AuthProfileStore = {
+      version: AUTH_STORE_VERSION,
+      profiles: {
+        [profileId]: {
+          type: "token",
+          provider,
+          token: "access-token",
+          expires: Date.now() + 60_000,
+        },
+      },
+      usageStats: {
+        [profileId]: {
+          modelStats: {
+            [modelId]: {
+              cooldownUntil: Date.now() + 60_000,
+            },
+          },
+        },
+      },
+    };
+
+    saveAuthProfileStore(store, tempDir);
+
+    const cfg = makeCfg({
+      agents: {
+        defaults: {
+          model: {
+            primary: `${provider}/${modelId}`,
+            fallbacks: ["openai/gpt-4.1-mini"],
+          },
+        },
+      },
+    });
+
+    expect(Object.keys(store.profiles)).toContain(profileId);
+    expect(
+      resolveAuthProfileOrder({
+        cfg,
+        store,
+        provider,
+      }),
+    ).toContain(profileId);
+
+    const run = vi.fn().mockImplementation(async (providerId, model) => {
+      if (providerId === "openai" && model === "gpt-4.1-mini") {
+        return "ok";
+      }
+      throw new Error(`unexpected provider: ${providerId}/${model}`);
+    });
+
+    try {
+      const result = await runWithModelFallback({
+        cfg,
+        provider,
+        model: modelId,
+        agentDir: tempDir,
+        authStoreOverride: store,
+        run,
+      });
+
+      expect(result.result).toBe("ok");
+      expect(run.mock.calls).toEqual([["openai", "gpt-4.1-mini"]]);
+      expect(result.attempts[0]?.reason).toBe("rate_limit");
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
@@ -473,5 +557,32 @@ describe("runWithModelFallback", () => {
     expect(run).toHaveBeenCalledTimes(2);
     expect(result.provider).toBe("openai");
     expect(result.model).toBe("gpt-4.1-mini");
+  });
+
+  it("calls onError callback when a model fails and triggers fallback", async () => {
+    const cfg = makeCfg();
+    const error = Object.assign(new Error("rate limit"), { status: 429 });
+    const run = vi.fn().mockRejectedValueOnce(error).mockResolvedValueOnce("ok");
+    const onError = vi.fn();
+
+    const result = await runWithModelFallback({
+      cfg,
+      provider: "openai",
+      model: "gpt-4.1-mini",
+      run,
+      onError,
+    });
+
+    expect(result.result).toBe("ok");
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "openai",
+        model: "gpt-4.1-mini",
+        error: expect.any(Error),
+        attempt: 1,
+        total: 2,
+      }),
+    );
   });
 });

@@ -630,9 +630,31 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
     onError: (err, info) => {
       runtime.error?.(danger(`discord ${info.kind} reply failed: ${String(err)}`));
     },
-    onReplyStart: async () => {
-      await typingCallbacks.onReplyStart();
-      await statusReactions.setThinking();
+    onReplyStart: createTypingCallbacks({
+      start: () => sendTyping({ client, channelId: typingChannelId }),
+      onStartError: (err) => {
+        logTypingFailure({
+          log: logVerbose,
+          channel: "discord",
+          target: typingChannelId,
+          error: err,
+        });
+      },
+    }).onReplyStart,
+  });
+
+  const { queuedFinal, counts } = await dispatchInboundMessage({
+    ctx: ctxPayload,
+    cfg,
+    dispatcher,
+    replyOptions: {
+      ...replyOptions,
+      skillFilter: channelConfig?.skills,
+      disableBlockStreaming:
+        typeof discordConfig?.blockStreaming === "boolean"
+          ? !discordConfig.blockStreaming
+          : undefined,
+      onModelSelected,
     },
   });
 

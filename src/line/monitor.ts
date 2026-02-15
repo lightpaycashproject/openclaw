@@ -256,6 +256,47 @@ export async function monitorLineProvider(
           },
           replyOptions: {
             onModelSelected,
+            onFallback: async (error, failedModel, context) => {
+              // Line doesn't have a specific "alert" mechanism, so we just send a push message
+              // if it happens. Note: Line is not streaming so this might just be ignored
+              // or sent if the model fails during reasoning/processing.
+              const retryLine = context?.next
+                ? `Trying with ${context.next.provider}/${context.next.model}...`
+                : context
+                  ? "No fallback model configured."
+                  : "Trying again...";
+              const body = {
+                text:
+                  `\u26a0\ufe0f Model Failed: ${failedModel.model} failed.\n` +
+                  `Reason: ${error.message}\n` +
+                  retryLine,
+              };
+              await deliverLineAutoReply({
+                payload: body,
+                lineData: {},
+                to: ctxPayload.From,
+                replyToken: undefined,
+                replyTokenUsed: true,
+                accountId: ctx.accountId,
+                textLimit,
+                deps: {
+                  buildTemplateMessageFromPayload,
+                  processLineMessage,
+                  chunkMarkdownText,
+                  sendLineReplyChunks,
+                  replyMessageLine,
+                  pushMessageLine,
+                  pushTextMessageWithQuickReplies,
+                  createQuickReplyItems,
+                  createTextMessageWithQuickReplies,
+                  pushMessagesLine,
+                  createFlexMessage,
+                  createImageMessage,
+                  createLocationMessage,
+                  onReplyError: () => {},
+                },
+              });
+            },
           },
         });
 
