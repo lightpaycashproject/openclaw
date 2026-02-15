@@ -806,6 +806,18 @@ export async function resolveImplicitProviders(params: {
   if (nvidiaKey) {
     providers.nvidia = { ...buildNvidiaProvider(), apiKey: nvidiaKey };
   }
+  // OpenRouter provider
+  const openRouterKey =
+    resolveEnvApiKeyVarName("openrouter") ??
+    resolveApiKeyFromProfiles({ provider: "openrouter", store: authStore });
+  if (openRouterKey) {
+    providers.openrouter = {
+      baseUrl: "https://openrouter.ai/api/v1",
+      api: "openai-completions",
+      models: [], // OpenRouter models are dynamic/passed via ID
+      apiKey: openRouterKey,
+    };
+  }
 
   return providers;
 }

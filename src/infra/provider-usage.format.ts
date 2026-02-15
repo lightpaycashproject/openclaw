@@ -64,12 +64,33 @@ export function formatUsageWindowSummary(
       : snapshot.windows.length;
   const includeResets = opts?.includeResets ?? false;
   const windows = snapshot.windows.slice(0, maxWindows);
-  const parts = windows.map((window) => {
-    const remaining = clampPercent(100 - window.usedPercent);
-    const reset = includeResets ? formatResetRemaining(window.resetAt, now) : null;
-    const resetSuffix = reset ? ` ⏱${reset}` : "";
-    return `${window.label} ${remaining.toFixed(0)}% left${resetSuffix}`;
-  });
+  const isOpenRouter = snapshot.provider === "openrouter";
+  const parts = windows
+    .map((window) => {
+      if (isOpenRouter) {
+        if (window.label === "PaidTier") {
+          return null;
+        }
+        if (window.label === "FreeTier") {
+          return "Free tier";
+        }
+        if (window.label === "Credits") {
+          if (typeof window.remaining === "number") {
+            const remaining = Math.max(0, window.remaining);
+            return `Credits $${remaining.toFixed(2)}`;
+          }
+          return "Credits";
+        }
+      }
+      const remaining = clampPercent(100 - window.usedPercent);
+      const reset = includeResets ? formatResetRemaining(window.resetAt, now) : null;
+      const resetSuffix = reset ? ` ⏱${reset}` : "";
+      return `${window.label} ${remaining.toFixed(0)}% left${resetSuffix}`;
+    })
+    .filter(Boolean) as string[];
+  if (parts.length === 0) {
+    return null;
+  }
   return parts.join(" · ");
 }
 

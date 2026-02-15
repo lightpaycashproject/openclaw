@@ -162,6 +162,19 @@ export function stripHeartbeatToken(
 
   const rest = picked.text.trim();
   if (mode === "heartbeat") {
+    // Check for internal monologue leak (common with thinking models like Gemini 2.5 Flash Lite)
+    const monologuePatterns = [
+      /^Current timestamp:/m,
+      /^Heartbeat Check:/m,
+      /^Read HEARTBEAT\.md/m,
+      /^Last OR usage check:/m,
+      /^Last quota check:/m,
+    ];
+    const hasMonologue = monologuePatterns.some((p) => p.test(rest));
+    if (hasMonologue) {
+      return { shouldSkip: true, text: "", didStrip: true };
+    }
+
     if (rest.length <= maxAckChars) {
       return { shouldSkip: true, text: "", didStrip: true };
     }

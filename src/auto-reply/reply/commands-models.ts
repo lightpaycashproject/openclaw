@@ -1,3 +1,8 @@
+import type { OpenClawConfig } from "../../config/config.js";
+import type { ProviderUsageSnapshot } from "../../infra/provider-usage.types.js";
+import type { ReplyPayload } from "../types.js";
+import type { CommandHandler } from "./commands-types.js";
+import { resolveOpenClawAgentDir } from "../../agents/agent-paths.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "../../agents/defaults.js";
 import { loadModelCatalog } from "../../agents/model-catalog.js";
 import {
@@ -7,7 +12,8 @@ import {
   resolveConfiguredModelRef,
   resolveModelRefFromString,
 } from "../../agents/model-selection.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import { loadProviderUsageSummary } from "../../infra/provider-usage.load.js";
+import { resolveUsageProviderId } from "../../infra/provider-usage.shared.js";
 import {
   buildModelsKeyboard,
   buildProviderKeyboard,
@@ -15,8 +21,6 @@ import {
   getModelsPageSize,
   type ProviderInfo,
 } from "../../telegram/model-buttons.js";
-import type { ReplyPayload } from "../types.js";
-import type { CommandHandler } from "./commands-types.js";
 
 const PAGE_SIZE_DEFAULT = 20;
 const PAGE_SIZE_MAX = 100;
@@ -26,6 +30,105 @@ export type ModelsProviderData = {
   providers: string[];
   resolvedDefault: { provider: string; model: string };
 };
+
+function findUsageForModel(
+  modelId: string,
+  snapshot?: ProviderUsageSnapshot,
+): { usedPercent: number } | undefined {
+  if (!snapshot?.windows.length) {
+    return undefined;
+  }
+  const lowerModelId = modelId.toLowerCase();
+  const normalizedModelId = lowerModelId.replace(/-/g, "");
+  const normalizeLabel = (label: string) => {
+    const trimmed = label.toLowerCase();
+    const variants = new Set<string>();
+    variants.add(trimmed);
+    variants.add(trimmed.replace(/^models\//, ""));
+    const lastSegment = trimmed.split("/").at(-1);
+    if (lastSegment) {
+      variants.add(lastSegment);
+    }
+    variants.add(trimmed.replace(/-/g, ""));
+    return [...variants];
+  };
+  return snapshot.windows.find((window) => {
+    const variants = normalizeLabel(window.label);
+    return variants.some(
+      (label) =>
+        lowerModelId.includes(label) ||
+        label.includes(lowerModelId) ||
+        normalizedModelId.includes(label.replace(/-/g, "")),
+    );
+  });
+}
+
+function formatRemainingPercent(usedPercent: number): string {
+  if (!Number.isFinite(usedPercent)) {
+    return "0%";
+  }
+  const remaining = Math.max(0, Math.min(100, 100 - usedPercent));
+  return `${remaining.toFixed(0)}%`;
+}
+
+export async function buildModelsUsageLabels(params: {
+  provider: string;
+  models: string[];
+  agentDir?: string;
+}): Promise<Map<string, string>> {
+  const labels = new Map<string, string>();
+  const usageProviderId = resolveUsageProviderId(params.provider);
+  if (!usageProviderId) {
+    return labels;
+  }
+
+  let snapshot: ProviderUsageSnapshot | undefined;
+  try {
+    const usageSummary = await loadProviderUsageSummary({
+      providers: [usageProviderId],
+      agentDir: params.agentDir ?? resolveOpenClawAgentDir(),
+    });
+    snapshot = usageSummary.providers.find((entry) => entry.provider === usageProviderId);
+  } catch {
+    return labels;
+  }
+
+  if (!snapshot) {
+    return labels;
+  }
+
+  if (params.provider === "google-antigravity") {
+    for (const model of params.models) {
+      const usage = findUsageForModel(model, snapshot);
+      if (usage) {
+        labels.set(model, ` · ${formatRemainingPercent(usage.usedPercent)}`);
+      }
+    }
+    return labels;
+  }
+
+  if (params.provider === "openrouter") {
+    const credits = snapshot.windows.find((window) => window.label === "Credits");
+    const isFreeTier = snapshot.windows.some((window) => window.label === "FreeTier");
+    const creditsRemaining =
+      typeof credits?.remaining === "number" ? Math.max(0, credits.remaining) : undefined;
+    const creditsLabel =
+      typeof creditsRemaining === "number" ? ` · Credits $${creditsRemaining.toFixed(2)}` : "";
+
+    for (const model of params.models) {
+      const lower = model.toLowerCase();
+      const isFree = lower.includes(":free") || lower.endsWith("free");
+      if (isFree) {
+        const quota = isFreeTier ? "50/d" : "1k/d";
+        labels.set(model, ` · Free (${quota})`);
+      } else if (creditsLabel) {
+        labels.set(model, creditsLabel);
+      }
+    }
+  }
+
+  return labels;
+}
 
 /**
  * Build provider/model data from config and catalog.
@@ -253,11 +356,13 @@ export async function resolveModelsCommandReply(params: {
     const telegramPageSize = getModelsPageSize();
     const totalPages = calculateTotalPages(total, telegramPageSize);
     const safePage = Math.max(1, Math.min(page, totalPages));
+    const usageLabels = await buildModelsUsageLabels({ provider, models });
 
     const buttons = buildModelsKeyboard({
       provider,
       models,
       currentModel: params.currentModel,
+      modelLabels: usageLabels,
       currentPage: safePage,
       totalPages,
       pageSize: telegramPageSize,

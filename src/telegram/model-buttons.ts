@@ -25,6 +25,7 @@ export type ModelsKeyboardParams = {
   provider: string;
   models: string[];
   currentModel?: string;
+  modelLabels?: Map<string, string>;
   currentPage: number;
   totalPages: number;
   pageSize?: number;
@@ -113,7 +114,7 @@ export function buildProviderKeyboard(providers: ProviderInfo[]): ButtonRow[] {
  * Build model list keyboard with pagination and back button.
  */
 export function buildModelsKeyboard(params: ModelsKeyboardParams): ButtonRow[] {
-  const { provider, models, currentModel, currentPage, totalPages } = params;
+  const { provider, models, currentModel, currentPage, totalPages, modelLabels } = params;
   const pageSize = params.pageSize ?? MODELS_PAGE_SIZE;
 
   if (models.length === 0) {
@@ -141,7 +142,9 @@ export function buildModelsKeyboard(params: ModelsKeyboardParams): ButtonRow[] {
 
     const isCurrentModel = model === currentModelId;
     const displayText = truncateModelId(model, 38);
-    const text = isCurrentModel ? `${displayText} ✓` : displayText;
+    const usageLabel = modelLabels?.get(model) ?? "";
+    const baseText = usageLabel ? `${displayText}${usageLabel}` : displayText;
+    const text = isCurrentModel ? `${baseText} ✓` : baseText;
 
     rows.push([
       {

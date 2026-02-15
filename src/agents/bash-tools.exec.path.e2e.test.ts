@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExecApprovalsResolved } from "../infra/exec-approvals.js";
 import { sanitizeBinaryOutput } from "./shell-utils.js";
 
@@ -61,9 +61,21 @@ const normalizePathEntries = (value?: string) =>
 
 describe("exec PATH login shell merge", () => {
   const originalPath = process.env.PATH;
+  const originalShell = process.env.SHELL;
+  const testShell = process.env.OPENCLAW_TEST_SHELL || "/bin/sh";
+
+  beforeEach(() => {
+    if (!isWin) {
+      // Avoid sourcing user zshenv files that can mutate PATH or emit noise.
+      process.env.SHELL = testShell;
+    }
+  });
 
   afterEach(() => {
     process.env.PATH = originalPath;
+    if (!isWin) {
+      process.env.SHELL = originalShell;
+    }
   });
 
   it("merges login-shell PATH for host=gateway", async () => {

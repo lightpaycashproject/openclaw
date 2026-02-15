@@ -146,6 +146,19 @@ describe("buildModelsKeyboard", () => {
     expect(result[1]?.[0]?.text).toBe("claude-opus-4");
   });
 
+  it("appends model labels when provided", () => {
+    const modelLabels = new Map<string, string>([["claude-sonnet-4", " · 72%"]]);
+    const result = buildModelsKeyboard({
+      provider: "anthropic",
+      models: ["claude-sonnet-4", "claude-opus-4"],
+      modelLabels,
+      currentPage: 1,
+      totalPages: 1,
+    });
+    expect(result[0]?.[0]?.text).toBe("claude-sonnet-4 · 72%");
+    expect(result[1]?.[0]?.text).toBe("claude-opus-4");
+  });
+
   it("shows pagination when multiple pages", () => {
     const result = buildModelsKeyboard({
       provider: "anthropic",
