@@ -88,6 +88,37 @@ export function handleMessageUpdate(
 
   const delta = typeof assistantRecord?.delta === "string" ? assistantRecord.delta : "";
   const content = typeof assistantRecord?.content === "string" ? assistantRecord.content : "";
+  const contentIndex =
+    typeof assistantRecord?.contentIndex === "number" ? assistantRecord.contentIndex : -1;
+
+  // When a new content block starts (different contentIndex), flush the previous
+  // block's buffers and reset streaming state.  Without this, the deltaBuffer
+  // from block N contaminates block N+1, producing garbled concatenations like
+  // "Let me check all three things.m submission".
+  if (
+    evtType === "text_start" &&
+    contentIndex >= 0 &&
+    contentIndex !== ctx.state.lastContentBlockIndex
+  ) {
+    // Flush any pending block reply data from the previous content block.
+    if (ctx.state.blockReplyBreak === "text_end" && ctx.params.onBlockReply) {
+      if (ctx.blockChunker?.hasBuffered()) {
+        ctx.blockChunker.drain({ force: true, emit: ctx.emitBlockChunk });
+      } else if (ctx.state.blockBuffer.length > 0) {
+        ctx.emitBlockChunk(ctx.state.blockBuffer);
+      }
+    }
+    // Reset per-content-block streaming state.
+    ctx.state.deltaBuffer = "";
+    ctx.state.blockBuffer = "";
+    ctx.state.lastStreamedAssistant = undefined;
+    ctx.state.lastStreamedAssistantCleaned = undefined;
+    ctx.blockChunker?.reset();
+    ctx.state.lastContentBlockIndex = contentIndex;
+  } else if (contentIndex >= 0 && ctx.state.lastContentBlockIndex < 0) {
+    // First content block in this message - just record the index.
+    ctx.state.lastContentBlockIndex = contentIndex;
+  }
 
   appendRawStream({
     ts: Date.now(),
@@ -109,10 +140,23 @@ export function handleMessageUpdate(
       // KNOWN: Some providers resend full content on `text_end`.
       // We only append a suffix (or nothing) to keep output monotonic.
       if (content.startsWith(ctx.state.deltaBuffer)) {
+        // Content extends what we have - append the suffix
         chunk = content.slice(ctx.state.deltaBuffer.length);
       } else if (ctx.state.deltaBuffer.startsWith(content)) {
+        // Buffer already contains content - nothing to add
         chunk = "";
-      } else if (!ctx.state.deltaBuffer.includes(content)) {
+      } else if (ctx.state.deltaBuffer.includes(content)) {
+        // Content is a substring of buffer (but not at start) - nothing to add
+        chunk = "";
+      } else {
+        // Content doesn't match buffer - this is a backtrack/rewrite.
+        // Reset ALL streaming state and use the new content as truth.
+        // This prevents garbled output like "errors\nclean" when model rewrites.
+        ctx.state.deltaBuffer = "";
+        ctx.state.blockBuffer = "";
+        ctx.state.lastStreamedAssistant = undefined;
+        ctx.state.lastStreamedAssistantCleaned = undefined;
+        ctx.blockChunker?.reset();
         chunk = content;
       }
     }

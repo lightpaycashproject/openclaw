@@ -62,6 +62,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     assistantTextBaseline: 0,
     suppressBlockChunks: false, // Avoid late chunk inserts after final text merge.
     lastReasoningSent: undefined,
+    lastContentBlockIndex: -1,
     compactionInFlight: false,
     pendingCompactionRetry: 0,
     compactionRetryResolve: undefined,
@@ -123,6 +124,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     state.lastAssistantTextNormalized = undefined;
     state.lastAssistantTextTrimmed = undefined;
     state.assistantTextBaseline = nextAssistantTextBaseline;
+    state.lastContentBlockIndex = -1;
   };
 
   const rememberAssistantText = (text: string) => {
