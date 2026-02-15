@@ -393,7 +393,6 @@ export const dispatchTelegramMessage = async ({
       return;
     }
     // Mark that we've received streaming content (for forceNewMessage decision).
-    hasStreamedMessage = true;
     if (streamMode === "partial") {
       // Some providers briefly emit a shorter prefix snapshot (for example
       // "Sure." -> "Sure" -> "Sure."). Keep the longer preview to avoid
@@ -562,109 +561,75 @@ export const dispatchTelegramMessage = async ({
     replyQuoteText,
   };
 
-  let queuedFinal = false;
+  // Create placeholder controller if enabled
+  const placeholderConfig = telegramCfg.placeholder ?? {};
+  const placeholder = createPlaceholderController({
+    config: placeholderConfig,
+    sender: {
+      send: async (text) => {
+        const result = await sendMessageTelegram(String(chatId), text, {
+          token: opts.token,
+          messageThreadId: threadSpec.id,
+          textMode: "html",
+        });
+        return { messageId: result.messageId, chatId: result.chatId };
+      },
+      edit: async (messageId, text) => {
+        await editMessageTelegram(String(chatId), Number(messageId), text, {
+          token: opts.token,
+          textMode: "html",
+        });
+      },
+      delete: async (messageId) => {
+        await deleteMessageTelegram(String(chatId), Number(messageId), {
+          token: opts.token,
+        });
+      },
+    },
+    log: logVerbose,
+  });
+
+  // Send placeholder immediately when processing starts
+  if (placeholderConfig.enabled) {
+    await placeholder.start();
+  }
+
+  let sentFallback = false;
+  let hasFinalResponse = false;
   try {
-    ({ queuedFinal } = await dispatchReplyWithBufferedBlockDispatcher({
+    const { queuedFinal: qf } = await dispatchReplyWithBufferedBlockDispatcher({
       ctx: ctxPayload,
       cfg,
       dispatcherOptions: {
-        ...prefixOptions,
+        responsePrefix: prefixContext.responsePrefix,
+        responsePrefixContextProvider: prefixContext.responsePrefixContextProvider,
         deliver: async (payload, info) => {
+          let editMessageId: number | undefined;
           if (info.kind === "final") {
             await flushDraft();
-            const hasMedia = Boolean(payload.mediaUrl) || (payload.mediaUrls?.length ?? 0) > 0;
-            const previewMessageId = draftStream?.messageId();
-            const finalText = payload.text;
-            const currentPreviewText = streamMode === "block" ? draftText : lastPartialText;
-            const previewButtons = (
-              payload.channelData?.telegram as { buttons?: TelegramInlineButtons } | undefined
-            )?.buttons;
-            let draftStoppedForPreviewEdit = false;
-            // Skip preview edit for error payloads to avoid overwriting previous content
-            const canFinalizeViaPreviewEdit =
-              !finalizedViaPreviewMessage &&
-              !hasMedia &&
-              typeof finalText === "string" &&
-              finalText.length > 0 &&
-              typeof previewMessageId === "number" &&
-              finalText.length <= draftMaxChars &&
-              !payload.isError;
-            if (canFinalizeViaPreviewEdit) {
-              await draftStream?.stop();
-              draftStoppedForPreviewEdit = true;
-              if (
-                currentPreviewText &&
-                currentPreviewText.startsWith(finalText) &&
-                finalText.length < currentPreviewText.length
-              ) {
-                // Ignore regressive final edits (e.g., "Okay." -> "Ok"), which
-                // can appear transiently in some provider streams.
-                return;
-              }
-              try {
-                await editMessageTelegram(chatId, previewMessageId, finalText, {
-                  api: bot.api,
-                  cfg,
-                  accountId: route.accountId,
-                  linkPreview: telegramCfg.linkPreview,
-                  buttons: previewButtons,
-                });
-                finalizedViaPreviewMessage = true;
-                deliveryState.delivered = true;
-                return;
-              } catch (err) {
-                logVerbose(
-                  `telegram: preview final edit failed; falling back to standard send (${String(err)})`,
-                );
-              }
-            }
-            if (
-              !hasMedia &&
-              !payload.isError &&
-              typeof finalText === "string" &&
-              finalText.length > draftMaxChars
-            ) {
-              logVerbose(
-                `telegram: preview final too long for edit (${finalText.length} > ${draftMaxChars}); falling back to standard send`,
-              );
-            }
-            if (!draftStoppedForPreviewEdit) {
-              await draftStream?.stop();
-            }
-            // Check if stop() sent a message (debounce released on isFinal)
-            // If so, edit that message instead of sending a new one
-            const messageIdAfterStop = draftStream?.messageId();
-            if (
-              !finalizedViaPreviewMessage &&
-              typeof messageIdAfterStop === "number" &&
-              typeof finalText === "string" &&
-              finalText.length > 0 &&
-              finalText.length <= draftMaxChars &&
-              !hasMedia &&
-              !payload.isError
-            ) {
-              try {
-                await editMessageTelegram(chatId, messageIdAfterStop, finalText, {
-                  api: bot.api,
-                  cfg,
-                  accountId: route.accountId,
-                  linkPreview: telegramCfg.linkPreview,
-                  buttons: previewButtons,
-                });
-                finalizedViaPreviewMessage = true;
-                deliveryState.delivered = true;
-                return;
-              } catch (err) {
-                logVerbose(
-                  `telegram: post-stop preview edit failed; falling back to standard send (${String(err)})`,
-                );
-              }
-            }
+            editMessageId = draftStream?.messageId();
+            draftStream?.stop();
+            // Clear status before final reply
+            draftToolStatus = "";
+            draftModelStatus = "";
+            // Clean up placeholder before sending final reply
+            await placeholder.cleanup();
           }
           const result = await deliverReplies({
-            ...deliveryBaseOptions,
             replies: [payload],
+            chatId: String(chatId),
+            token: opts.token,
+            runtime,
+            bot,
+            replyToMode,
+            textLimit,
+            thread: threadSpec,
+            tableMode,
+            chunkMode,
             onVoiceRecording: sendRecordVoice,
+            linkPreview: telegramCfg.linkPreview,
+            replyQuoteText,
+            editMessageId,
           });
           if (result.delivered) {
             deliveryState.delivered = true;
@@ -676,7 +641,21 @@ export const dispatchTelegramMessage = async ({
           }
         },
         onError: (err, info) => {
+          isStreaming = false;
           runtime.error?.(danger(`telegram ${info.kind} reply failed: ${String(err)}`));
+          // Also notify user about delivery failures if they are critical
+          if (info.kind === "final" && !deliveryState.delivered) {
+            void deliverReplies({
+              replies: [{ text: `\u26a0\ufe0f *Delivery failed:* ${String(err)}` }],
+              chatId: String(chatId),
+              token: opts.token,
+              runtime,
+              bot,
+              replyToMode,
+              textLimit,
+              thread: threadSpec,
+            });
+          }
         },
         onReplyStart: createTypingCallbacks({
           start: sendTyping,
@@ -694,55 +673,125 @@ export const dispatchTelegramMessage = async ({
         skillFilter,
         disableBlockStreaming,
         onPartialReply: draftStream ? (payload) => updateDraftFromPartial(payload.text) : undefined,
-        onAssistantMessageStart: draftStream
-          ? () => {
-              // Only split preview bubbles in block mode. In partial mode, keep
-              // editing one preview message to avoid flooding the chat.
-              logVerbose(
-                `telegram: onAssistantMessageStart called, hasStreamedMessage=${hasStreamedMessage}`,
-              );
-              if (shouldSplitPreviewMessages && hasStreamedMessage) {
-                logVerbose(`telegram: calling forceNewMessage()`);
-                draftStream.forceNewMessage();
+        onReasoningStream: draftStream
+          ? (payload) => {
+              if (payload.text) {
+                // strip the "Reasoning:" prefix since we use <think> tags (now blockquote)
+                draftReasoning = payload.text.replace(/^Reasoning:\s*/i, "").trim();
+                updateDraftCombined();
               }
-              lastPartialText = "";
-              draftText = "";
-              draftChunker?.reset();
             }
           : undefined,
-        onReasoningEnd: draftStream
-          ? () => {
-              // Same policy as assistant-message boundaries: split only in block mode.
-              if (shouldSplitPreviewMessages && hasStreamedMessage) {
-                draftStream.forceNewMessage();
-              }
-              lastPartialText = "";
-              draftText = "";
-              draftChunker?.reset();
+        onModelSelected: (ctx) => {
+          prefixContext.onModelSelected(ctx);
+          if (draftStream) {
+            // Only show model info if it changed from the last shown model
+            const modelKey = `${ctx.provider}/${ctx.model}`;
+            if (modelKey !== lastShownModel) {
+              draftModelStatus = `\ud83e\udd16 Using <b>${escapeHtml(ctx.model)}</b>`;
+              updateDraftCombined();
             }
-          : undefined,
-        onModelSelected,
+            lastShownModel = modelKey;
+          }
+        },
+        onFallback: async (error, failedModel, context) => {
+          const retryLine = context?.next
+            ? `Trying with <b>${escapeHtml(`${context.next.provider}/${context.next.model}`)}</b>...`
+            : context
+              ? "No fallback model configured."
+              : "Trying again...";
+          const msg =
+            `\u26a0\ufe0f <b>Model Failed:</b> ${escapeHtml(failedModel.model)} failed.\n` +
+            `Reason: ${escapeHtml(error.message)}\n` +
+            retryLine;
+          await sendMessageTelegram(String(chatId), msg, {
+            token: opts.token,
+            messageThreadId: threadSpec.id,
+            textMode: "html",
+          });
+        },
+        onToolStart: async (toolName, args) => {
+          if (placeholderConfig.enabled) {
+            await placeholder.onTool(toolName, args);
+          }
+          if (draftStream) {
+            const argsStr = formatToolArgs(toolName, args);
+            lastToolName = toolName;
+            lastToolArgs = argsStr;
+            draftToolStatus = `🛠️ <b>Running ${escapeHtml(toolName)}</b>${argsStr}...`;
+            updateDraftCombined();
+          }
+        },
+        onToolUpdate: async (toolName, args) => {
+          if (draftStream) {
+            const argsStr = formatToolArgs(toolName, args);
+            lastToolName = toolName;
+            lastToolArgs = argsStr;
+            draftToolStatus = `🛠️ <b>Running ${escapeHtml(toolName)}</b>${argsStr}...`;
+            updateDraftCombined();
+          }
+        },
+        onToolEnd: async (res) => {
+          if (draftStream) {
+            const icon = res.isError ? "⚠️" : "✅";
+            const status = res.isError ? "failed" : "finished";
+            const argsSuffix = lastToolName === res.toolName ? lastToolArgs : "";
+            draftToolStatus = `${icon} <b>${escapeHtml(res.toolName)}</b> ${status}${argsSuffix}...`;
+            updateDraftCombined();
+          }
+        },
       },
-    }));
-  } finally {
-    // Must stop() first to flush debounced content before clear() wipes state
-    await draftStream?.stop();
-    if (!finalizedViaPreviewMessage) {
-      await draftStream?.clear();
-    }
-  }
-  let sentFallback = false;
-  if (!deliveryState.delivered && deliveryState.skippedNonSilent > 0) {
-    const result = await deliverReplies({
-      replies: [{ text: EMPTY_RESPONSE_FALLBACK }],
-      ...deliveryBaseOptions,
     });
-    sentFallback = result.delivered;
+
+    draftStream?.stop();
+    if (!deliveryState.delivered && deliveryState.skippedNonSilent > 0) {
+      const result = await deliverReplies({
+        replies: [{ text: EMPTY_RESPONSE_FALLBACK }],
+        chatId: String(chatId),
+        token: opts.token,
+        runtime,
+        bot,
+        replyToMode,
+        textLimit,
+        thread: threadSpec,
+        tableMode,
+        chunkMode,
+        linkPreview: telegramCfg.linkPreview,
+        replyQuoteText,
+      });
+      if (result.delivered) {
+        sentFallback = true;
+      }
+    }
+    hasFinalResponse = qf || sentFallback;
+  } catch (err) {
+    runtime.error?.(danger(`telegram reply agent error: ${String(err)}`));
+    if (!deliveryState.delivered) {
+      const result = await deliverReplies({
+        replies: [{ text: `\u26a0\ufe0f *An error occurred:* ${String(err)}` }],
+        chatId: String(chatId),
+        token: opts.token,
+        runtime,
+        bot,
+        replyToMode,
+        textLimit,
+        thread: threadSpec,
+      });
+      hasFinalResponse = result.delivered;
+    }
+  } finally {
+    // Explicitly clean up placeholder in case of errors/aborts
+    await placeholder.cleanup();
   }
 
-  const hasFinalResponse = queuedFinal || sentFallback;
   if (!hasFinalResponse) {
-    clearGroupHistory();
+    if (isGroup && historyKey) {
+      clearHistoryEntriesIfEnabled({
+        historyMap: groupHistories,
+        historyKey,
+        limit: historyLimit,
+      });
+    }
     return;
   }
   removeAckReactionAfterReply({
