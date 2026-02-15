@@ -475,7 +475,7 @@ describe("applyAuthChoice", () => {
       provider: "openrouter",
       mode: "api_key",
     });
-    expect(result.config.agents?.defaults?.model?.primary).toBe("openrouter/auto");
+    expect(result.config.agents?.defaults?.model?.primary).toBe("openrouter/openrouter/auto");
 
     expect((await readAuthProfile("openrouter:default"))?.key).toBe("sk-openrouter-test");
 
