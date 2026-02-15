@@ -16,7 +16,7 @@ function resolveProfileUnusableUntil(stats: ProfileUsageStats): number | null {
 /**
  * Check if a profile is currently in cooldown (due to rate limiting or errors).
  */
-export function isProfileInCooldown(store: AuthProfileStore, profileId: string): boolean {
+export function isProfileInCooldown(store: AuthProfileStore, profileId: string, model: string): boolean {
   const stats = store.usageStats?.[profileId];
   if (!stats) {
     return false;

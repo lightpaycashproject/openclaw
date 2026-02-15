@@ -172,6 +172,244 @@ function createOpenRouterHeadersWrapper(baseStreamFn: StreamFn | undefined): Str
     });
 }
 
+function assistantMessageHasToolCall(msg: AgentMessage): boolean {
+  if (!msg || typeof msg !== "object" || msg.role !== "assistant") {
+    return false;
+  }
+  if (!Array.isArray(msg.content)) {
+    return false;
+  }
+  for (const block of msg.content) {
+    if (!block || typeof block !== "object") {
+      continue;
+    }
+    const type = (block as { type?: unknown }).type;
+    if (type === "toolCall" || type === "toolUse" || type === "functionCall") {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * OpenRouter (and some upstream providers it routes to) may require `reasoning_content` to exist
+ * on assistant tool-call messages when thinking is enabled.
+ *
+ * We set an empty string for compatibility, without mutating the original session transcript.
+ */
+function createOpenRouterReasoningContentWrapper(baseStreamFn: StreamFn | undefined): StreamFn {
+  const underlying = baseStreamFn ?? streamSimple;
+  return (model, context, options) => {
+    if (model?.provider !== "openrouter" || model?.api !== "openai-completions") {
+      return underlying(model, context, options);
+    }
+
+    const messages = (context as { messages?: unknown }).messages;
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return underlying(model, context, options);
+    }
+
+    let didChange = false;
+    const nextMessages = messages.map((msg) => {
+      const candidate = msg as AgentMessage;
+      if (!assistantMessageHasToolCall(candidate)) {
+        return msg;
+      }
+      const record = msg as Record<string, unknown>;
+      if (typeof record.reasoning_content === "string") {
+        return msg;
+      }
+      didChange = true;
+      return { ...record, reasoning_content: "" };
+    });
+
+    if (!didChange) {
+      return underlying(model, context, options);
+    }
+
+    return underlying(
+      model,
+      {
+        ...(context as unknown as Record<string, unknown>),
+        messages: nextMessages,
+      } as typeof context,
+      options,
+    );
+  };
+}
+
+/**
+ * OpenRouter supports prompt caching for Anthropic models (and others).
+ * To use it, we must add `cache_control: { type: "ephemeral" }` to the message
+ * blocks we want to use as cache breakpoints.
+ *
+ * We automatically add this to the system prompt to avoid re-processing the
+ * large system instruction on every turn.
+ */
+function createOpenRouterCacheControlWrapper(baseStreamFn: StreamFn | undefined): StreamFn {
+  const underlying = baseStreamFn ?? streamSimple;
+  return (model, context, options) => {
+    // Only apply cache_control for Anthropic models on OpenRouter
+    // Other models (Moonshot, Qwen, etc.) don't support cache_control and would fail
+    const isAnthropicOnOpenRouter =
+      model?.provider === "openrouter" &&
+      (model?.id?.startsWith("anthropic/") || model?.id?.includes("/claude"));
+    if (!isAnthropicOnOpenRouter) {
+      return underlying(model, context, options);
+    }
+
+    const ctx = context as { messages?: unknown[]; systemPrompt?: string };
+    let messages = ctx.messages;
+    if (!Array.isArray(messages)) {
+      messages = [];
+    }
+
+    let nextMessages = [...messages];
+
+    // Helper to inject cache_control into a specific message index
+    const markCacheControl = (msgs: unknown[], index: number) => {
+      if (index < 0 || index >= msgs.length) {
+        return;
+      }
+      const target = msgs[index];
+      // Don't overwrite existing control
+      if ((target as Record<string, unknown>).cache_control) {
+        return;
+      }
+      msgs[index] = {
+        ...(target as Record<string, unknown>),
+        cache_control: { type: "ephemeral" },
+      };
+    };
+
+    // 1. Handle explicit systemPrompt field (convert to message(s))
+    if (ctx.systemPrompt) {
+      const fullPrompt = ctx.systemPrompt;
+      const splitIndex = fullPrompt.indexOf("# Project Context");
+
+      let newSystemMessages: unknown[];
+
+      if (splitIndex !== -1) {
+        // Split into [Static Instructions] and [Project Context]
+        const staticPart = fullPrompt.slice(0, splitIndex).trim();
+        const contextPart = fullPrompt.slice(splitIndex).trim();
+
+        newSystemMessages = [
+          { role: "system", content: staticPart },
+          { role: "system", content: contextPart },
+        ];
+
+        // Mark BOTH parts.
+        // Part 1 (Static) will effectively be a permanent cache hit prefix.
+        // Part 2 (Context) will be cached if it doesn't change.
+        markCacheControl(newSystemMessages, 0);
+        markCacheControl(newSystemMessages, 1);
+      } else {
+        newSystemMessages = [{ role: "system", content: fullPrompt }];
+        markCacheControl(newSystemMessages, 0);
+      }
+
+      return underlying(
+        model,
+        {
+          ...ctx,
+          messages: [...newSystemMessages, ...nextMessages],
+          systemPrompt: undefined,
+        } as typeof context,
+        options,
+      );
+    }
+
+    if (nextMessages.length === 0) {
+      return underlying(model, context, options);
+    }
+
+    // 2. Handle existing system messages in messages array
+    // We iterate backwards to find system messages.
+    // If we find a large system message containing Project Context, we split it in place.
+    let didChange = false;
+
+    // We only want to split the *main* system prompt, which is usually the first one or
+    // the one containing the context marker.
+    // However, to be safe and simple, we scan for the marker.
+
+    const contextMarker = "# Project Context";
+    const sysMsgIndex = nextMessages.findIndex((m) => {
+      const msg = m as { role?: string; content?: unknown };
+      return (
+        msg.role === "system" &&
+        typeof msg.content === "string" &&
+        msg.content.includes(contextMarker)
+      );
+    });
+
+    if (sysMsgIndex !== -1) {
+      const msg = nextMessages[sysMsgIndex] as { role: string; content: string };
+      const content = msg.content;
+      const splitIdx = content.indexOf(contextMarker);
+
+      if (splitIdx !== -1) {
+        const staticPart = content.slice(0, splitIdx).trim();
+        const contextPart = content.slice(splitIdx).trim();
+
+        // specific check to avoid splitting if static part is empty (unlikely)
+        if (staticPart && contextPart) {
+          const msgStatic = { ...msg, content: staticPart };
+          const msgContext = { ...msg, content: contextPart };
+
+          // Replace single message with two messages
+          nextMessages.splice(sysMsgIndex, 1, msgStatic, msgContext);
+
+          // Apply cache control to both new messages
+          markCacheControl(nextMessages, sysMsgIndex);
+          markCacheControl(nextMessages, sysMsgIndex + 1);
+          didChange = true;
+        }
+      }
+    }
+
+    // Fallback: If no split occurred (or no marker found), ensure the LAST system message is marked.
+    // This catches cases where there is no Project Context or it's already split.
+    if (!didChange) {
+      // Find last system message
+      let lastSysIndex = -1;
+      for (let i = nextMessages.length - 1; i >= 0; i--) {
+        const m = nextMessages[i] as { role?: string };
+        if (m.role === "system") {
+          lastSysIndex = i;
+          break;
+        }
+      }
+
+      if (lastSysIndex !== -1) {
+        if (!(nextMessages[lastSysIndex] as Record<string, unknown>).cache_control) {
+          markCacheControl(nextMessages, lastSysIndex);
+          didChange = true;
+        }
+      }
+    }
+
+    /*
+     * Note: Context-caching (history) is also possible by marking the
+     * second-to-last user message, but we start with system prompt only
+     * to ensure stability and compatibility.
+     */
+
+    if (!didChange) {
+      return underlying(model, context, options);
+    }
+
+    return underlying(
+      model,
+      {
+        ...(context as unknown as Record<string, unknown>),
+        messages: nextMessages,
+      } as typeof context,
+      options,
+    );
+  };
+}
+
 /**
  * Create a streamFn wrapper that injects tool_stream=true for Z.AI providers.
  *
@@ -238,8 +476,10 @@ export function applyExtraParamsToAgent(
   }
 
   if (provider === "openrouter") {
+    agent.streamFn = createOpenRouterReasoningContentWrapper(agent.streamFn);
     log.debug(`applying OpenRouter app attribution headers for ${provider}/${modelId}`);
     agent.streamFn = createOpenRouterHeadersWrapper(agent.streamFn);
+    agent.streamFn = createOpenRouterCacheControlWrapper(agent.streamFn);
   }
 
   // Enable Z.AI tool_stream for real-time tool call streaming.
@@ -256,4 +496,76 @@ export function applyExtraParamsToAgent(
   // Force `store=true` for direct OpenAI/OpenAI Codex providers so multi-turn
   // server-side conversation state is preserved.
   agent.streamFn = createOpenAIResponsesStoreWrapper(agent.streamFn);
+  // Apply role transformation for incompatible providers
+  if (needsRoleTransformation(provider, modelId)) {
+    log.debug(`applying developer->system role transformation for ${provider}/${modelId}`);
+    const originalStreamFn = agent.streamFn ?? streamSimple;
+    agent.streamFn = (model, context, options) => {
+      const transformedContext = {
+        ...context,
+        messages: transformDeveloperRole(
+          context.messages as Array<{ role: string; content: unknown }>,
+        ),
+      };
+      return originalStreamFn(model, transformedContext as typeof context, options);
+    };
+  }
+}
+
+/**
+ * Wrap a streamFn to inject `thinking: { type: "disabled" }` into the Anthropic
+ * API payload for reasoning-capable models when thinking is not enabled.
+ *
+ * Without this, some Anthropic-compatible providers (e.g. Synthetic/Kimi K2.5)
+ * default to emitting thinking as plain text in regular content blocks when the
+ * thinking parameter is absent, which leaks into user-visible output.
+ */
+export function createThinkingDisabledWrapper(baseStreamFn: StreamFn, model: Model<Api>): StreamFn {
+  if (!model.reasoning || model.api !== "anthropic-messages") {
+    return baseStreamFn;
+  }
+
+  log.debug("wrapping streamFn with thinking: disabled for anthropic-messages reasoning model");
+
+  return (mdl, context, options) => {
+    const nextOnPayload = (payload: unknown) => {
+      const p = payload as Record<string, unknown>;
+      if (!("thinking" in p)) {
+        p.thinking = { type: "disabled" };
+      }
+      options?.onPayload?.(payload);
+    };
+    return baseStreamFn(mdl, context, {
+      ...options,
+      onPayload: nextOnPayload,
+    });
+  };
+}
+
+/**
+ * Check if a provider requires developer -> system role transformation.
+ * Only returns true for known incompatible providers (DeepSeek).
+ * Default is false (no transformation) to avoid breaking other providers.
+ *
+ * @internal Exported for testing
+ */
+export function needsRoleTransformation(provider: string, modelId: string): boolean {
+  // Only DeepSeek models are known to not support "developer" role
+  if (modelId.toLowerCase().includes("deepseek")) {
+    return true;
+  }
+  // Default: no transformation for unknown providers
+  // This avoids breaking providers that may handle "developer" differently
+  return false;
+}
+
+/**
+ * Transform developer role messages to system role for incompatible providers.
+ *
+ * @internal Exported for testing
+ */
+export function transformDeveloperRole(
+  messages: Array<{ role: string; content: unknown }>,
+): Array<{ role: string; content: unknown }> {
+  return messages.map((msg) => (msg.role === "developer" ? { ...msg, role: "system" } : msg));
 }

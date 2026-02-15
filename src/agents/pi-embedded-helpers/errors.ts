@@ -103,6 +103,8 @@ export function isCompactionFailureError(errorMessage?: string): boolean {
 const ERROR_PAYLOAD_PREFIX_RE =
   /^(?:error|api\s*error|apierror|openai\s*error|anthropic\s*error|gateway\s*error)[:\s-]+/i;
 const FINAL_TAG_RE = /<\s*\/?\s*final\s*>/gi;
+const ROLE_ORDERING_ERROR_RE =
+  /incorrect role information|roles must alternate|400.*role|"message".*role.*information/i;
 const ERROR_PREFIX_RE =
   /^(?:error|api\s*error|openai\s*error|anthropic\s*error|gateway\s*error|request failed|failed|exception)[:\s-]+/i;
 const CONTEXT_OVERFLOW_ERROR_HEAD_RE =
@@ -465,11 +467,7 @@ export function formatAssistantErrorText(
   }
 
   // Catch role ordering errors - including JSON-wrapped and "400" prefix variants
-  if (
-    /incorrect role information|roles must alternate|400.*role|"message".*role.*information/i.test(
-      raw,
-    )
-  ) {
+  if (ROLE_ORDERING_ERROR_RE.test(raw)) {
     return (
       "Message ordering conflict - please try again. " +
       "If this persists, use /new to start a fresh session."
@@ -513,7 +511,10 @@ export function formatAssistantErrorText(
   return raw.length > 600 ? `${raw.slice(0, 600)}…` : raw;
 }
 
-export function sanitizeUserFacingText(text: string, opts?: { errorContext?: boolean }): string {
+export function sanitizeUserFacingText(
+  text: string,
+  opts?: { streaming?: boolean; errorContext?: boolean },
+): string {
   if (!text) {
     return text;
   }
@@ -523,11 +524,19 @@ export function sanitizeUserFacingText(text: string, opts?: { errorContext?: boo
   if (!trimmed) {
     return "";
   }
+  const inferredErrorContext =
+    errorContext ||
+    (opts?.streaming
+      ? ROLE_ORDERING_ERROR_RE.test(trimmed) ||
+        isRawApiErrorPayload(trimmed) ||
+        isLikelyHttpErrorText(trimmed) ||
+        ERROR_PREFIX_RE.test(trimmed)
+      : false);
 
   // Only apply error-pattern rewrites when the caller knows this text is an error payload.
-  // Otherwise we risk swallowing legitimate assistant text that merely *mentions* these errors.
-  if (errorContext) {
-    if (/incorrect role information|roles must alternate/i.test(trimmed)) {
+  // In streaming mode, fall back to strong error heuristics to avoid leaking raw API failures.
+  if (inferredErrorContext) {
+    if (ROLE_ORDERING_ERROR_RE.test(trimmed)) {
       return (
         "Message ordering conflict - please try again. " +
         "If this persists, use /new to start a fresh session."
@@ -634,6 +643,7 @@ const ERROR_PATTERNS = {
     "tool_use_id",
     "messages.1.content.1.tool_use.id",
     "invalid request format",
+    "field required",
   ],
 } as const;
 
