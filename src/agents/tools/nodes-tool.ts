@@ -76,7 +76,6 @@ const NodesToolSchema = Type.Object({
   screenIndex: Type.Optional(Type.Number()),
   outPath: Type.Optional(Type.String()),
   // location_get
-  maxAgeMs: Type.Optional(Type.Number()),
   locationTimeoutMs: Type.Optional(Type.Number()),
   desiredAccuracy: optionalStringEnum(LOCATION_ACCURACY),
   // run
@@ -521,9 +520,7 @@ export function createNodesTool(options?: {
                 invokeParams = JSON.parse(invokeParamsJson);
               } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
-                throw new Error(`invokeParamsJson must be valid JSON: ${message}`, {
-                  cause: err,
-                });
+                throw new Error(`invokeParamsJson must be valid JSON: ${message}`, { cause: err });
               }
             }
             const invokeTimeoutMs = parseTimeoutMs(params.invokeTimeoutMs);
