@@ -1,7 +1,7 @@
-import type { ProfileUsageStats, ModelUsageStats } from "../agents/auth-profiles/types.js";
 import { resolveOpenClawAgentDir } from "../agents/agent-paths.js";
 import { resolveAuthStorePath } from "../agents/auth-profiles/paths.js";
 import { loadAuthProfileStore, saveAuthProfileStore } from "../agents/auth-profiles/store.js";
+import type { ProfileUsageStats } from "../agents/auth-profiles/types.js";
 import { theme } from "../terminal/theme.js";
 
 export type ResetCooldownsOptions = {

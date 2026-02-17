@@ -16,6 +16,8 @@ import { logAckFailure, logTypingFailure } from "../channels/logging.js";
 import { createReplyPrefixContext } from "../channels/reply-prefix.js";
 import { createTypingCallbacks } from "../channels/typing.js";
 import { resolveMarkdownTableMode } from "../config/markdown-tables.js";
+import { resolveStorePath } from "../config/sessions.ts";
+import { loadSessionStore } from "../config/sessions/store.ts";
 import type { OpenClawConfig, ReplyToMode, TelegramAccountConfig } from "../config/types.js";
 import { danger, logVerbose } from "../globals.js";
 import { getAgentScopedMediaLocalRoots } from "../media/local-roots.js";
@@ -24,14 +26,11 @@ import type { TelegramMessageContext } from "./bot-message-context.js";
 import type { TelegramBotOptions } from "./bot.js";
 import { deliverReplies } from "./bot/delivery.js";
 import type { TelegramStreamMode } from "./bot/types.js";
-import type { TelegramInlineButtons } from "./button-types.js";
 import { resolveTelegramDraftStreamingChunking } from "./draft-chunking.js";
 import { createTelegramDraftStream } from "./draft-stream.js";
 import { markdownToTelegramHtml } from "./format.js";
 import { sendMessageTelegram, deleteMessageTelegram, editMessageTelegram } from "./send.js";
 import { cacheSticker, describeStickerImage } from "./sticker-cache.js";
-import { loadSessionStore } from "../config/sessions/store.ts";
-import { resolveStorePath } from "../config/sessions.ts";
 
 const EMPTY_RESPONSE_FALLBACK = "No response generated. Please try again.";
 
@@ -117,7 +116,7 @@ export const dispatchTelegramMessage = async ({
     draftStream && streamMode === "block"
       ? resolveTelegramDraftStreamingChunking(cfg, route.accountId)
       : undefined;
-  const shouldSplitPreviewMessages = streamMode === "block";
+  const _shouldSplitPreviewMessages = streamMode === "block";
   const draftChunker = draftChunking ? new EmbeddedBlockChunker(draftChunking) : undefined;
   const mediaLocalRoots = getAgentScopedMediaLocalRoots(cfg, route.agentId);
   let lastPartialText = "";
@@ -223,7 +222,7 @@ export const dispatchTelegramMessage = async ({
     return `\n<pre><code${langClass}>${escapeHtml(text)}</code></pre>${suffix}`;
   };
 
-  const formatToolArgs = (toolName: string, args: any) => {
+  const formatToolArgs = (toolName: string, args: unknown) => {
     if (!args || typeof args !== "object" || Object.keys(args).length === 0) {
       return "";
     }
@@ -540,13 +539,13 @@ export const dispatchTelegramMessage = async ({
     delivered: false,
     skippedNonSilent: 0,
   };
-  let finalizedViaPreviewMessage = false;
+  let _finalizedViaPreviewMessage = false;
   const clearGroupHistory = () => {
     if (isGroup && historyKey) {
       clearHistoryEntriesIfEnabled({ historyMap: groupHistories, historyKey, limit: historyLimit });
     }
   };
-  const deliveryBaseOptions = {
+  const _deliveryBaseOptions = {
     chatId: String(chatId),
     token: opts.token,
     runtime,

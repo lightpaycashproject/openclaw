@@ -20,7 +20,7 @@ type KeyResponse = {
 
 const makeFetch = (opts: { credits?: CreditsResponse; key: KeyResponse }) =>
   vi.fn(async (url: RequestInfo | URL) => {
-    const href = typeof url === "string" ? url : url.toString();
+    const href = typeof url === "string" ? url : url.href;
     if (href.endsWith("/credits")) {
       const ok = opts.credits?.ok ?? true;
       const status = opts.credits?.status ?? (ok ? 200 : 403);

@@ -1,12 +1,12 @@
 import type { OpenClawConfig } from "../../config/config.js";
+import { normalizeProviderId } from "../model-selection.js";
+import { saveAuthProfileStore, updateAuthProfileStoreWithLock } from "./store.js";
 import type {
   AuthProfileFailureReason,
   AuthProfileStore,
   ModelUsageStats,
   ProfileUsageStats,
 } from "./types.js";
-import { normalizeProviderId } from "../model-selection.js";
-import { saveAuthProfileStore, updateAuthProfileStoreWithLock } from "./store.js";
 
 function resolveProfileUnusableUntil(stats: ProfileUsageStats): number | null {
   const values = [stats.cooldownUntil, stats.disabledUntil]

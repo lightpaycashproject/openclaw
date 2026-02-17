@@ -23,8 +23,8 @@ import {
 } from "./bot.create-telegram-bot.test-harness.js";
 import { createTelegramBot } from "./bot.js";
 
-const loadConfig = getLoadConfigMock();
-const readChannelAllowFromStore = getReadChannelAllowFromStoreMock();
+const _loadConfig = getLoadConfigMock();
+const _readChannelAllowFromStore = getReadChannelAllowFromStoreMock();
 
 function resolveSkillCommands(config: Parameters<typeof listNativeCommandSpecsForConfig>[0]) {
   void config;

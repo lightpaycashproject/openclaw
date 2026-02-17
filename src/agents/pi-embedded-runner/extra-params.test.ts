@@ -192,8 +192,7 @@ describe("OpenRouter cache control", () => {
         { role: "user", content: "user" },
       ],
     };
-    const model = { provider: "openrouter", id: "anthropic/claude-3-5-sonnet" } as any;
-
+    const model = { provider: "openrouter", id: "anthropic/claude-3-5-sonnet" } as unknown;
     agent.streamFn(model, context, {});
 
     expect(baseFn).toHaveBeenCalled();
@@ -214,8 +213,7 @@ describe("OpenRouter cache control", () => {
       messages: [{ role: "user", content: "user" }],
       systemPrompt: "sys string",
     };
-    const model = { provider: "openrouter", id: "anthropic/claude-3-5-sonnet" } as any;
-
+    const model = { provider: "openrouter", id: "anthropic/claude-3-5-sonnet" } as unknown;
     agent.streamFn(model, context, {});
 
     const callCtx = baseFn.mock.calls[0][1];
@@ -241,8 +239,7 @@ describe("OpenRouter cache control", () => {
       messages: [],
       systemPrompt: fullPrompt,
     };
-    const model = { provider: "openrouter", id: "anthropic/claude-3-5-sonnet" } as any;
-
+    const model = { provider: "openrouter", id: "anthropic/claude-3-5-sonnet" } as unknown;
     agent.streamFn(model, context, {});
 
     const callCtx = baseFn.mock.calls[0][1];
@@ -278,8 +275,7 @@ describe("OpenRouter cache control", () => {
         { role: "user", content: "user" },
       ],
     };
-    const model = { provider: "openrouter", id: "moonshotai/kimi-k2" } as any;
-
+    const model = { provider: "openrouter", id: "moonshotai/kimi-k2" } as unknown;
     agent.streamFn(model, context, {});
 
     expect(baseFn).toHaveBeenCalled();

@@ -1,5 +1,5 @@
-import type { ProviderUsageSnapshot } from "./provider-usage.types.js";
 import { PROVIDER_LABELS } from "./provider-usage.shared.js";
+import type { ProviderUsageSnapshot } from "./provider-usage.types.js";
 
 /**
  * Fetch OpenRouter usage info.

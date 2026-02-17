@@ -568,7 +568,7 @@ async function sendTelegramText(
     return opts.editMessageId;
   }
   try {
-    const res = await withTelegramApiErrorLogging<any>({
+    const res = await withTelegramApiErrorLogging<unknown>({
       operation: opts?.editMessageId ? "editMessageText" : "sendMessage",
       runtime,
       shouldLog: (err) => !PARSE_ERR_RE.test(formatErrorMessage(err)),

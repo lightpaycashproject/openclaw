@@ -5,13 +5,9 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import type { AuthProfileStore } from "./auth-profiles.js";
-import type { runWithModelFallback as runWithModelFallbackType } from "./model-fallback.js";
-import {
-  ensureAuthProfileStore,
-  resolveAuthProfileOrder,
-  saveAuthProfileStore,
-} from "./auth-profiles.js";
+import { resolveAuthProfileOrder, saveAuthProfileStore } from "./auth-profiles.js";
 import { AUTH_STORE_VERSION } from "./auth-profiles/constants.js";
+import type { runWithModelFallback as runWithModelFallbackType } from "./model-fallback.js";
 
 let runWithModelFallback: typeof runWithModelFallbackType;
 

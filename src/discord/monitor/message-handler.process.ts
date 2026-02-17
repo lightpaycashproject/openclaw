@@ -595,7 +595,7 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
     accountId,
   });
 
-  const typingCallbacks = createTypingCallbacks({
+  const _typingCallbacks = createTypingCallbacks({
     start: () => sendTyping({ client, channelId: typingChannelId }),
     onStartError: (err) => {
       logTypingFailure({
@@ -643,7 +643,7 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
     }).onReplyStart,
   });
 
-  const { queuedFinal, counts } = await dispatchInboundMessage({
+  const { queuedFinal: _queuedFinal, counts: _counts } = await dispatchInboundMessage({
     ctx: ctxPayload,
     cfg,
     dispatcher,

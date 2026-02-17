@@ -2,12 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { makeTempWorkspace, writeWorkspaceFile } from "../test-helpers/workspace.js";
-import {
-  DEFAULT_MEMORY_ALT_FILENAME,
-  DEFAULT_MEMORY_FILENAME,
-  loadWorkspaceBootstrapFiles,
-  resolveDefaultAgentWorkspaceDir,
-} from "./workspace.js";
+import { loadWorkspaceBootstrapFiles, resolveDefaultAgentWorkspaceDir } from "./workspace.js";
 
 describe("resolveDefaultAgentWorkspaceDir", () => {
   it("uses OPENCLAW_HOME for default workspace resolution", () => {
@@ -39,7 +34,7 @@ describe("loadWorkspaceBootstrapFiles", () => {
     expect(longTermMemory).toBeUndefined();
 
     // Daily memory should be present
-    const dailyMemory = files.find((f) => f.name === (dailyFile as any));
+    const dailyMemory = files.find((f) => f.name === (dailyFile as unknown));
     expect(dailyMemory).toBeDefined();
     expect(dailyMemory?.content).toBe("daily logs");
   });

@@ -29,7 +29,6 @@ import {
 import {
   archiveFileOnDisk,
   archiveSessionTranscripts,
-  listSessionsFromStore,
   listSessionsFromStoreAsync,
   loadCombinedSessionStoreForGateway,
   loadSessionEntry,

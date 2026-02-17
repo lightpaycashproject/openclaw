@@ -1,5 +1,4 @@
 import { InlineKeyboard } from "grammy";
-import type { ProviderUsageSnapshot } from "../../infra/provider-usage.types.js";
 import { resolveOpenClawAgentDir } from "../../agents/agent-paths.js";
 import { DEFAULT_PROVIDER } from "../../agents/defaults.js";
 import { loadModelCatalog } from "../../agents/model-catalog.js";
@@ -9,6 +8,7 @@ import { OpenClawConfig } from "../../config/config.js";
 import { formatUsageWindowSummary } from "../../infra/provider-usage.format.js";
 import { loadProviderUsageSummary } from "../../infra/provider-usage.load.js";
 import { resolveUsageProviderId } from "../../infra/provider-usage.shared.js";
+import type { ProviderUsageSnapshot } from "../../infra/provider-usage.types.js";
 
 const PAGE_SIZE = 10;
 

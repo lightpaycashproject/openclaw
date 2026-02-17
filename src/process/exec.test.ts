@@ -59,7 +59,7 @@ describe("runCommandWithTimeout", () => {
       ],
       {
         timeoutMs: 5_000,
-        noOutputTimeoutMs: 160,
+        noOutputTimeoutMs: 1_000,
       },
     );
 

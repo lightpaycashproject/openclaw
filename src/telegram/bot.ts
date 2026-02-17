@@ -21,8 +21,10 @@ import {
 import { loadSessionStore, resolveStorePath } from "../config/sessions.js";
 import { danger, logVerbose, shouldLogVerbose } from "../globals.js";
 import { formatUncaughtError } from "../infra/errors.js";
+import { enqueueSystemEvent } from "../infra/system-events.ts";
 import { getChildLogger } from "../logging.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { resolveAgentRoute } from "../routing/resolve-route.ts";
 import type { RuntimeEnv } from "../runtime.js";
 import { resolveTelegramAccount } from "./accounts.js";
 import { registerTelegramHandlers } from "./bot-handlers.js";
@@ -41,8 +43,6 @@ import {
   resolveTelegramStreamMode,
 } from "./bot/helpers.js";
 import { resolveTelegramFetch } from "./fetch.js";
-import { resolveAgentRoute } from "../routing/resolve-route.ts";
-import { enqueueSystemEvent } from "../infra/system-events.ts";
 import { wasSentByBot } from "./sent-message-cache.ts";
 
 export type TelegramBotOptions = {
@@ -348,7 +348,7 @@ export function createTelegramBot(opts: TelegramBotOptions) {
     shouldSkipUpdate,
     processMessage,
     logger,
-  } as any);
+  } as unknown);
 
   registerTelegramNativeCommands({
     bot,

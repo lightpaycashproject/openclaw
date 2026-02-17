@@ -1267,6 +1267,7 @@ describe("sendStickerTelegram", () => {
 
 describe("editMessageTelegram", () => {
   beforeEach(() => {
+    clearSentMessageCache();
     botApi.editMessageText.mockReset();
     botCtorSpy.mockReset();
   });

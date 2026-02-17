@@ -1,7 +1,6 @@
 import type { OpenClawConfig } from "../config/config.js";
-import type { AuthProfileStore } from "./auth-profiles.js";
-import type { FailoverReason } from "./pi-embedded-helpers.js";
 import { isModelQuotaExhausted } from "./antigravity-quota-cache.js";
+import type { AuthProfileStore } from "./auth-profiles.js";
 import {
   ensureAuthProfileStore,
   getSoonestCooldownExpiry,
@@ -93,6 +92,10 @@ type ModelFallbackErrorHandler = (attempt: {
   error: unknown;
   attempt: number;
   total: number;
+  next?: {
+    provider: string;
+    model: string;
+  };
 }) => void | Promise<void>;
 
 type ModelFallbackRunResult<T> = {
@@ -490,7 +493,7 @@ export async function runWithModelFallback<T>(params: {
       });
       profiles.forEach((id) => profileIds.add(id));
     }
-    const earliestExpiry = findEarliestCooldownExpiry(authStore, profileIds);
+    const earliestExpiry = getSoonestCooldownExpiry(authStore, Array.from(profileIds));
     if (earliestExpiry) {
       retryAfterMs = Math.max(0, earliestExpiry - Date.now());
     }

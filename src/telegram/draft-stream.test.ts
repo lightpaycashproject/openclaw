@@ -1,38 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createTelegramDraftStream } from "./draft-stream.js";
-
-function createMockDraftApi(sendMessageImpl?: () => Promise<{ message_id: number }>) {
-  return {
-    sendMessage: vi.fn(sendMessageImpl ?? (async () => ({ message_id: 17 }))),
-    editMessageText: vi.fn().mockResolvedValue(true),
-    deleteMessage: vi.fn().mockResolvedValue(true),
-  };
-}
-
-function createForumDraftStream(api: ReturnType<typeof createMockDraftApi>) {
-  return createThreadedDraftStream(api, { id: 99, scope: "forum" });
-}
-
-function createThreadedDraftStream(
-  api: ReturnType<typeof createMockDraftApi>,
-  thread: { id: number; scope: "forum" | "dm" },
-) {
-  return createTelegramDraftStream({
-    // oxlint-disable-next-line typescript/no-explicit-any
-    api: api as any,
-    chatId: 123,
-    thread,
-  });
-}
-
-async function expectInitialForumSend(
-  api: ReturnType<typeof createMockDraftApi>,
-  text = "Hello",
-): Promise<void> {
-  await vi.waitFor(() =>
-    expect(api.sendMessage).toHaveBeenCalledWith(123, text, { message_thread_id: 99 }),
-  );
-}
 
 describe("createTelegramDraftStream", () => {
   it("passes message_thread_id when provided", async () => {
@@ -45,7 +12,6 @@ describe("createTelegramDraftStream", () => {
       // oxlint-disable-next-line typescript/no-explicit-any
       api: api as any,
       chatId: 123,
-      draftId: 42,
       thread: { id: 99, scope: "forum" },
       warn,
     });
@@ -75,7 +41,6 @@ describe("createTelegramDraftStream", () => {
       // oxlint-disable-next-line typescript/no-explicit-any
       api: api as any,
       chatId: 123,
-      draftId: 42,
       thread: { id: 1, scope: "forum" },
       warn,
     });
@@ -97,11 +62,9 @@ describe("createTelegramDraftStream", () => {
       // oxlint-disable-next-line typescript/no-explicit-any
       api: api as any,
       chatId: 123,
-      draftId: 42,
       thread: { id: 1, scope: "dm" },
       warn,
     });
-  });
 
     stream.update("Hello");
     await new Promise((r) => setTimeout(r, 50));
@@ -115,3 +78,4 @@ describe("createTelegramDraftStream", () => {
       }),
     );
   });
+});

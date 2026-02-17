@@ -23,7 +23,7 @@ describe("telegram model picker (DM)", () => {
   });
 
   it("stores model override from inline keyboard in DM", async () => {
-    const callbacks = new Map<string, (ctx: any) => Promise<void>>();
+    const callbacks = new Map<string, (ctx: unknown) => Promise<void>>();
     const bot = {
       api: {
         answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
@@ -31,7 +31,7 @@ describe("telegram model picker (DM)", () => {
         sendMessage: vi.fn().mockResolvedValue(undefined),
         sendChatAction: vi.fn().mockResolvedValue(undefined),
       },
-      on: vi.fn((event: string, handler: (ctx: any) => Promise<void>) => {
+      on: vi.fn((event: string, handler: (ctx: unknown) => Promise<void>) => {
         callbacks.set(event, handler);
       }),
       command: vi.fn(),
@@ -53,7 +53,7 @@ describe("telegram model picker (DM)", () => {
     registerTelegramHandlers({
       cfg,
       accountId: "default",
-      bot: bot as any,
+      bot: bot as unknown,
       opts: { token: "token" },
       runtime: {
         log: vi.fn(),
@@ -66,7 +66,7 @@ describe("telegram model picker (DM)", () => {
       telegramCfg: {
         capabilities: { inlineButtons: "all" },
         dmPolicy: "open",
-      } as any,
+      } as unknown,
       groupAllowFrom: [],
       channelAllowFrom: [],
       resolveGroupPolicy: () => ({ allowlistEnabled: false, allowed: true }),
@@ -75,7 +75,7 @@ describe("telegram model picker (DM)", () => {
       resolveTelegramChannelConfig: () => ({}),
       shouldSkipUpdate: () => false,
       processMessage: vi.fn(),
-      logger: { info: vi.fn() } as any,
+      logger: { info: vi.fn() } as unknown,
     });
 
     const handler = callbacks.get("callback_query");
@@ -105,16 +105,13 @@ describe("telegram model picker (DM)", () => {
     });
 
     const storePath = `store:${route.agentId}`;
-    const store = sessionStores.get(storePath) as Record<string, any> | undefined;
+    const store = sessionStores.get(storePath);
     expect(store).toBeDefined();
     const session = store?.[route.sessionKey];
     expect(session?.providerOverride).toBe("openai");
     expect(session?.modelOverride).toBe("gpt-4o-mini");
-    expect(bot.api.editMessageText).toHaveBeenCalledWith(
-      chatId,
-      42,
-      `Use <b>${modelKey}</b> for this chat.`,
-      { parse_mode: "HTML" },
-    );
+    expect(bot.api.editMessageText).toHaveBeenCalledWith(chatId, 42, `Use <b>${modelKey}</b>.`, {
+      parse_mode: "HTML",
+    });
   });
 });

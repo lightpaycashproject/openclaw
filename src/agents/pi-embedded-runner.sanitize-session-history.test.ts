@@ -203,7 +203,7 @@ describe("sanitizeSessionHistory", () => {
     expect(result.map((msg) => msg.role)).toEqual(["user"]);
   });
 
-  it("downgrades orphaned openai reasoning even when the model has not changed", async () => {
+  it("keeps openai reasoning when the model has not changed", async () => {
     const sessionEntries = [
       makeModelSnapshotEntry({
         provider: "openai",
@@ -221,7 +221,8 @@ describe("sanitizeSessionHistory", () => {
       sessionManager,
     });
 
-    expect(result).toEqual([]);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.role).toBe("assistant");
   });
 
   it("downgrades orphaned openai reasoning when the model changes too", async () => {

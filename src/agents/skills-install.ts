@@ -11,7 +11,6 @@ import {
   hasBinary,
   loadWorkspaceSkillEntries,
   resolveSkillsInstallPreferences,
-  resolveRuntimePlatform,
   type SkillEntry,
   type SkillInstallSpec,
   type SkillsInstallPreferences,
