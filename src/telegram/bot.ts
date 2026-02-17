@@ -348,7 +348,7 @@ export function createTelegramBot(opts: TelegramBotOptions) {
     shouldSkipUpdate,
     processMessage,
     logger,
-  } as unknown);
+  });
 
   registerTelegramNativeCommands({
     bot,

@@ -588,7 +588,8 @@ async function sendTelegramText(
         });
       },
     });
-    const messageId = typeof res === "object" ? res.message_id : opts?.editMessageId;
+    const msgRes = res as { message_id?: number } | null | undefined;
+    const messageId = msgRes?.message_id ?? opts?.editMessageId;
     if (messageId) {
       recordSentMessage(chatId, messageId, htmlText);
     }

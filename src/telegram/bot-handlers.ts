@@ -38,6 +38,7 @@ import {
 } from "./bot/helpers.js";
 // @ts-nocheck
 import type { TelegramContext } from "./bot/types.js";
+import type { TelegramInlineButtons } from "./button-types.js";
 import { buildModelPickerMessage, buildProviderPickerMessage } from "./commands/model-picker.js";
 import {
   evaluateTelegramGroupBaseAccess,
@@ -530,15 +531,7 @@ export const registerTelegramHandlers = ({
     sendOversizeWarning: boolean;
     oversizeLogMessage: string;
   }) => {
-    const {
-      ctx,
-      msg,
-      chatId,
-      resolvedThreadId,
-      storeAllowFrom,
-      sendOversizeWarning,
-      _oversizeLogMessage,
-    } = params;
+    const { ctx, msg, chatId, resolvedThreadId, storeAllowFrom, sendOversizeWarning } = params;
 
     const text = typeof msg.text === "string" ? msg.text : undefined;
     const isCommandLike = (text ?? "").trim().startsWith("/");
@@ -828,7 +821,7 @@ export const registerTelegramHandlers = ({
       const modelCallback = parseModelCallbackData(data);
       if (modelCallback) {
         const { byProvider, providers } = await buildModelsProviderData(cfg);
-        const editOrReply = async (text: string, buttons: unknown) => {
+        const editOrReply = async (text: string, buttons: TelegramInlineButtons) => {
           const markup = buildInlineKeyboard(buttons);
           try {
             await ctx.editMessageText(text, { reply_markup: markup });

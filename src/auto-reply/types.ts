@@ -40,7 +40,11 @@ export type GetReplyOptions = {
   onBlockReply?: (payload: ReplyPayload, context?: BlockReplyContext) => Promise<void> | void;
   onToolResult?: (payload: ReplyPayload) => Promise<void> | void;
   /** Called when a tool starts executing. */
-  onToolStart?: (toolName: string, args?: Record<string, unknown>) => Promise<void> | void;
+  onToolStart?: (data: {
+    name: string | undefined;
+    phase: string;
+    args?: Record<string, unknown>;
+  }) => Promise<void> | void;
   /** Called when a tool updates its execution state. */
   onToolUpdate?: (toolName: string, partial?: Record<string, unknown>) => Promise<void> | void;
   /** Called when a tool finishes executing. */

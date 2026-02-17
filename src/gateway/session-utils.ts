@@ -27,7 +27,11 @@ import {
 } from "../routing/session-key.js";
 import { isCronRunSessionKey } from "../sessions/session-key-utils.js";
 import { normalizeSessionDeliveryFields } from "../utils/delivery-context.js";
-import { readSessionTitleFieldsFromTranscript } from "./session-utils.fs.js";
+import {
+  readSessionTitleFieldsFromTranscript,
+  readFirstUserMessageFromTranscriptAsync,
+  readLastMessagePreviewFromTranscriptAsync,
+} from "./session-utils.fs.js";
 import type {
   GatewayAgentRow,
   GatewaySessionRow,

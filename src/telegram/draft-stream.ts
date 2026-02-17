@@ -91,6 +91,7 @@ export function createTelegramDraftStream(params: {
         });
         sentMessageId = msg.message_id;
       }
+      return true;
     } catch (err) {
       const msg = String(err);
       if (msg.includes("message is not modified")) {

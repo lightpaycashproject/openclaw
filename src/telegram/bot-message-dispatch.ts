@@ -226,11 +226,13 @@ export const dispatchTelegramMessage = async ({
     if (!args || typeof args !== "object" || Object.keys(args).length === 0) {
       return "";
     }
+    const argsRecord = args as Record<string, unknown>;
 
-    const getArg = (...keys: string[]) => {
+    const getArg = (...keys: string[]): string | null => {
       for (const k of keys) {
-        if (typeof args[k] === "string") {
-          return args[k];
+        const val = argsRecord[k];
+        if (typeof val === "string") {
+          return val;
         }
       }
       return null;
@@ -277,17 +279,19 @@ export const dispatchTelegramMessage = async ({
     if (toolName === "read") {
       const filePath = getArg("path", "file_path");
       if (filePath) {
+        const offsetVal = argsRecord.offset;
+        const limitVal = argsRecord.limit;
         const offset =
-          typeof args.offset === "number"
-            ? args.offset
-            : typeof args.offset === "string"
-              ? Number(args.offset)
+          typeof offsetVal === "number"
+            ? offsetVal
+            : typeof offsetVal === "string"
+              ? Number(offsetVal)
               : undefined;
         const limit =
-          typeof args.limit === "number"
-            ? args.limit
-            : typeof args.limit === "string"
-              ? Number(args.limit)
+          typeof limitVal === "number"
+            ? limitVal
+            : typeof limitVal === "string"
+              ? Number(limitVal)
               : undefined;
         const startLine = Number.isFinite(offset) ? Number(offset) : undefined;
         const endLine =
@@ -709,7 +713,13 @@ export const dispatchTelegramMessage = async ({
             textMode: "html",
           });
         },
-        onToolStart: async (toolName, args) => {
+        onToolStart: async (data: {
+          name: string | undefined;
+          phase: string;
+          args?: Record<string, unknown>;
+        }) => {
+          const toolName = data.name ?? "unknown";
+          const args = data.args;
           if (placeholderConfig.enabled) {
             await placeholder.onTool(toolName, args);
           }
@@ -721,7 +731,7 @@ export const dispatchTelegramMessage = async ({
             updateDraftCombined();
           }
         },
-        onToolUpdate: async (toolName, args) => {
+        onToolUpdate: async (toolName: string, args?: Record<string, unknown>) => {
           if (draftStream) {
             const argsStr = formatToolArgs(toolName, args);
             lastToolName = toolName;
