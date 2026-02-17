@@ -95,6 +95,8 @@ describe("telegram model picker (DM)", () => {
           is_forum: false,
         },
       },
+      editMessageText: (text: string, opts: { parse_mode: string }) =>
+        bot.api.editMessageText(chatId, 42, text, opts),
     });
 
     const route = resolveAgentRoute({

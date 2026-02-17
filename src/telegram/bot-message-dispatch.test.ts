@@ -616,7 +616,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     });
 
     dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ replyOptions }) => {
-      await replyOptions?.onToolStart?.("search", { q: "test" });
+      await replyOptions?.onToolStart?.({ name: "search", phase: "start", args: { q: "test" } });
       await replyOptions?.onToolUpdate?.("search", { q: "test..." });
       await replyOptions?.onToolEnd?.({ toolName: "search", isError: false, result: "ok" });
       return { queuedFinal: true };
@@ -646,10 +646,18 @@ describe("dispatchTelegramMessage draft streaming", () => {
     });
 
     dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ replyOptions }) => {
-      await replyOptions?.onToolStart?.("read", { path: "/tmp/example.ts", offset: 1, limit: 2 });
-      await replyOptions?.onToolStart?.("write", {
-        path: "/tmp/example.ts",
-        content: "const answer = 42;\n",
+      await replyOptions?.onToolStart?.({
+        name: "read",
+        phase: "start",
+        args: { path: "/tmp/example.ts", offset: 1, limit: 2 },
+      });
+      await replyOptions?.onToolStart?.({
+        name: "write",
+        phase: "start",
+        args: {
+          path: "/tmp/example.ts",
+          content: "const answer = 42;\n",
+        },
       });
       return { queuedFinal: true };
     });
@@ -678,7 +686,11 @@ describe("dispatchTelegramMessage draft streaming", () => {
     });
 
     dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ replyOptions }) => {
-      await replyOptions?.onToolStart?.("browser", { url: "https://google.com/search?q=openclaw" });
+      await replyOptions?.onToolStart?.({
+        name: "browser",
+        phase: "start",
+        args: { url: "https://google.com/search?q=openclaw" },
+      });
       return { queuedFinal: true };
     });
 
@@ -707,7 +719,11 @@ describe("dispatchTelegramMessage draft streaming", () => {
 
     const longCmd = "echo " + "a".repeat(60);
     dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ replyOptions }) => {
-      await replyOptions?.onToolStart?.("run_command", { CommandLine: longCmd });
+      await replyOptions?.onToolStart?.({
+        name: "run_command",
+        phase: "start",
+        args: { CommandLine: longCmd },
+      });
       return { queuedFinal: true };
     });
 
@@ -735,7 +751,11 @@ describe("dispatchTelegramMessage draft streaming", () => {
     });
 
     dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ replyOptions }) => {
-      await replyOptions?.onToolStart?.("browser", { action: "snapshot", targetId: "abc" });
+      await replyOptions?.onToolStart?.({
+        name: "browser",
+        phase: "start",
+        args: { action: "snapshot", targetId: "abc" },
+      });
       return { queuedFinal: true };
     });
 
