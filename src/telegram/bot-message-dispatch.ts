@@ -108,6 +108,7 @@ export const dispatchTelegramMessage = async ({
         thread: threadSpec,
         replyToMessageId: draftReplyToMessageId,
         minInitialChars: DRAFT_MIN_INITIAL_CHARS,
+        parse_mode: "HTML",
         log: logVerbose,
         warn: logVerbose,
       })

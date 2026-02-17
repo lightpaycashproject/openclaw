@@ -90,6 +90,7 @@ export function createTelegramDraftStream(params: {
           parse_mode: params.parse_mode,
         });
         sentMessageId = msg.message_id;
+        streamMessageId = msg.message_id;
       }
       return true;
     } catch (err) {
