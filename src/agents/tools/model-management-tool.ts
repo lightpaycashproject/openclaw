@@ -25,9 +25,9 @@ const MODEL_ACTIONS = [
 
 const ModelManagementToolSchema = Type.Object({
   action: stringEnum(MODEL_ACTIONS),
-  // add, remove
+  // add, remove, setPrimary
   model: Type.Optional(Type.String()),
-  // setFallbacks
+  // setFallbacks (comma-separated)
   models: Type.Optional(Type.String()),
   // listAvailable, search
   provider: Type.Optional(Type.String()),
@@ -37,12 +37,38 @@ const ModelManagementToolSchema = Type.Object({
   limit: Type.Optional(Type.Number()),
 });
 
+/**
+ * Resolve model ID to full model ref with provider prefix.
+ * If model already has provider prefix (e.g., "openrouter/z-ai/glm-5"), returns as-is.
+ * Otherwise, searches catalog and adds provider prefix if found.
+ * Throws error if model not found - user must specify explicit provider prefix.
+ */
+async function resolveModelRef(modelId: string, cfg: OpenClawConfig): Promise<string> {
+  // Already has provider prefix
+  if (modelId.includes("/")) {
+    return modelId;
+  }
+
+  // Search catalog for the model
+  const catalog = await loadModelCatalog({ config: cfg, useCache: true });
+  const found = catalog.find((m) => m.id === modelId || m.id.endsWith(`/${modelId}`));
+
+  if (found) {
+    return `${found.provider}/${found.id}`;
+  }
+
+  // Model not found - require explicit provider prefix
+  throw new Error(
+    `Model '${modelId}' not found in catalog. Please specify provider prefix (e.g., 'openrouter/z-ai/glm-5', 'openai/gpt-4o', 'anthropic/claude-3.5-sonnet')`,
+  );
+}
+
 export function createModelManagementTool(): AnyAgentTool {
   return {
     label: "Model Management",
     name: "model-management",
     description:
-      "Manage configured models in OpenClaw. Actions: add, remove, setPrimary, setFallbacks, list (current config), listAvailable (browse catalog), search (search models). Use listAvailable to browse OpenRouter models.",
+      "Manage configured models in OpenClaw. Actions: add, remove, setPrimary, setFallbacks, list (current config), listAvailable (browse catalog), search (search models). Use listAvailable to browse OpenRouter models. Models are auto-prefixed with provider (e.g., 'glm-5' becomes 'openrouter/z-ai/glm-5').",
     parameters: ModelManagementToolSchema,
     execute: async (_toolCallId, args, context) => {
       const params = args as Record<string, unknown>;
@@ -54,37 +80,47 @@ export function createModelManagementTool(): AnyAgentTool {
       switch (action) {
         case "add": {
           const model = readStringParam(params, "model", { required: true });
+          const resolvedModel = await resolveModelRef(model, cfg);
           const existingKeys = resolveConfiguredModelKeys(cfg);
-          const normalized = normalizeModelKeys([...existingKeys, model]);
+          const normalized = normalizeModelKeys([...existingKeys, resolvedModel]);
           cfg = applyModelAllowlist(cfg, normalized);
-          message = `Added model: ${model}`;
+          message = `Added model: ${resolvedModel}`;
           break;
         }
 
         case "remove": {
           const model = readStringParam(params, "model", { required: true });
+          const resolvedModel = await resolveModelRef(model, cfg);
           const existingKeys = resolveConfiguredModelKeys(cfg);
-          const normalized = normalizeModelKeys(existingKeys.filter((m) => m !== model));
+          const normalized = normalizeModelKeys(existingKeys.filter((m) => m !== resolvedModel));
           cfg = applyModelAllowlist(cfg, normalized);
-          message = `Removed model: ${model}`;
+          message = `Removed model: ${resolvedModel}`;
           break;
         }
 
         case "setPrimary": {
           const model = readStringParam(params, "model", { required: true });
-          cfg = applyPrimaryModel(cfg, model);
-          message = `Primary model set to: ${model} (hot swap)`;
+          const resolvedModel = await resolveModelRef(model, cfg);
+          cfg = applyPrimaryModel(cfg, resolvedModel);
+          message = `Primary model set to: ${resolvedModel} (hot swap)`;
           break;
         }
 
         case "setFallbacks": {
           const modelsStr = readStringParam(params, "models", { required: true });
-          const fallbackModels = modelsStr
+          const modelList = modelsStr
             .split(",")
             .map((m) => m.trim())
             .filter(Boolean);
-          cfg = applyModelFallbacksFromSelection(cfg, fallbackModels);
-          message = `Fallbacks set to: ${fallbackModels.join(", ")}`;
+
+          const resolvedModels: string[] = [];
+          for (const model of modelList) {
+            const resolved = await resolveModelRef(model, cfg);
+            resolvedModels.push(resolved);
+          }
+
+          cfg = applyModelFallbacksFromSelection(cfg, resolvedModels);
+          message = `Fallbacks set to: ${resolvedModels.join(", ")}`;
           break;
         }
 
