@@ -84,14 +84,14 @@ function resolveConfiguredModelRaw(cfg: OpenClawConfig): string {
   return raw?.primary?.trim() ?? "";
 }
 
-function resolveConfiguredModelKeys(cfg: OpenClawConfig): string[] {
+export function resolveConfiguredModelKeys(cfg: OpenClawConfig): string[] {
   const models = cfg.agents?.defaults?.models ?? {};
   return Object.keys(models)
     .map((key) => String(key ?? "").trim())
     .filter((key) => key.length > 0);
 }
 
-function normalizeModelKeys(values: string[]): string[] {
+export function normalizeModelKeys(values: string[]): string[] {
   const seen = new Set<string>();
   const next: string[] = [];
   for (const raw of values) {
