@@ -106,41 +106,53 @@ export function createModelManagementTool(): AnyAgentTool {
 
         case "setFallbacks": {
           const modelsStr = readStringParam(params, "models", { required: true });
-          const modelList = modelsStr
+          const newModels = modelsStr
             .split(",")
             .map((m) => m.trim())
             .filter(Boolean);
 
-          const resolvedModels: string[] = [];
-          for (const model of modelList) {
+          // Resolve models with provider prefix
+          const resolvedNew: string[] = [];
+          for (const model of newModels) {
             const resolved = await resolveModelRef(model, cfg);
-            resolvedModels.push(resolved);
+            resolvedNew.push(resolved);
           }
 
-          // Get current model config, initialize if needed
+          // Get current config
           const agents = cfg.agents ?? { defaults: {} };
           const defaults = agents.defaults ?? {};
           const modelConfig = defaults.model;
 
-          // Extract primary model from existing config
+          // Extract current fallbacks
+          let currentFallbacks: string[] = [];
+          if (typeof modelConfig === "object" && modelConfig?.fallbacks) {
+            currentFallbacks = modelConfig.fallbacks;
+          }
+
+          // Merge: new models first, then existing ones not in new list
+          const existingSet = new Set(resolvedNew);
+          const remainingFallbacks = currentFallbacks.filter((m) => !existingSet.has(m));
+          const allFallbacks = [...resolvedNew, ...remainingFallbacks];
+
+          // Extract primary
           let primary: string;
           if (typeof modelConfig === "string") {
             primary = modelConfig;
           } else if (typeof modelConfig === "object" && modelConfig?.primary) {
             primary = modelConfig.primary;
           } else {
-            primary = resolvedModels[0];
+            primary = resolvedNew[0] ?? "openrouter/auto";
           }
 
-          // Set fallbacks directly (bypassing buggy applyModelFallbacksFromSelection)
+          // Update config
           cfg = {
             ...cfg,
             agents: {
               ...agents,
-              defaults: { ...defaults, model: { primary, fallbacks: resolvedModels } },
+              defaults: { ...defaults, model: { primary, fallbacks: allFallbacks } },
             },
           };
-          message = `Fallbacks set to: ${resolvedModels.join(", ")}`;
+          message = `Fallbacks set to: ${allFallbacks.join(", ")}`;
           break;
         }
 
