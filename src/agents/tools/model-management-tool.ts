@@ -1,7 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import {
   applyModelAllowlist,
-  applyModelFallbacksFromSelection,
   applyPrimaryModel,
   normalizeModelKeys,
   resolveConfiguredModelKeys,
@@ -118,7 +117,31 @@ export function createModelManagementTool(): AnyAgentTool {
             resolvedModels.push(resolved);
           }
 
-          cfg = applyModelFallbacksFromSelection(cfg, resolvedModels);
+          // Initialize agents if not present (applyModelFallbacksFromSelection has a bug with single models)
+          cfg.agents = cfg.agents || { defaults: {} };
+          const defaults = cfg.agents.defaults || {};
+          const existingModel = defaults?.model;
+          const existingPrimary =
+            typeof existingModel === "string"
+              ? existingModel
+              : existingModel && typeof existingModel === "object"
+                ? existingModel.primary
+                : undefined;
+
+          cfg = {
+            ...cfg,
+            agents: {
+              ...cfg.agents,
+              defaults: {
+                ...defaults,
+                model: {
+                  ...(typeof existingModel === "object" ? existingModel : undefined),
+                  primary: existingPrimary || resolvedModels[0],
+                  fallbacks: resolvedModels,
+                },
+              },
+            },
+          };
           message = `Fallbacks set to: ${resolvedModels.join(", ")}`;
           break;
         }
