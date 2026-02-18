@@ -117,29 +117,27 @@ export function createModelManagementTool(): AnyAgentTool {
             resolvedModels.push(resolved);
           }
 
-          // Initialize agents if not present (applyModelFallbacksFromSelection has a bug with single models)
-          cfg.agents = cfg.agents || { defaults: {} };
-          const defaults = cfg.agents.defaults || {};
-          const existingModel = defaults?.model;
-          const existingPrimary =
-            typeof existingModel === "string"
-              ? existingModel
-              : existingModel && typeof existingModel === "object"
-                ? existingModel.primary
-                : undefined;
+          // Get current model config, initialize if needed
+          const agents = cfg.agents ?? { defaults: {} };
+          const defaults = agents.defaults ?? {};
+          const modelConfig = defaults.model;
 
+          // Extract primary model from existing config
+          let primary: string;
+          if (typeof modelConfig === "string") {
+            primary = modelConfig;
+          } else if (typeof modelConfig === "object" && modelConfig?.primary) {
+            primary = modelConfig.primary;
+          } else {
+            primary = resolvedModels[0];
+          }
+
+          // Set fallbacks directly (bypassing buggy applyModelFallbacksFromSelection)
           cfg = {
             ...cfg,
             agents: {
-              ...cfg.agents,
-              defaults: {
-                ...defaults,
-                model: {
-                  ...(typeof existingModel === "object" ? existingModel : undefined),
-                  primary: existingPrimary || resolvedModels[0],
-                  fallbacks: resolvedModels,
-                },
-              },
+              ...agents,
+              defaults: { ...defaults, model: { primary, fallbacks: resolvedModels } },
             },
           };
           message = `Fallbacks set to: ${resolvedModels.join(", ")}`;
