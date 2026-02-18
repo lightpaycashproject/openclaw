@@ -1112,6 +1112,11 @@ export function loadConfig(): OpenClawConfig {
   return config;
 }
 
+export function reloadConfig(): void {
+  clearConfigCache();
+  loadConfig();
+}
+
 export async function readConfigFileSnapshot(): Promise<ConfigFileSnapshot> {
   return await createConfigIO().readConfigFileSnapshot();
 }

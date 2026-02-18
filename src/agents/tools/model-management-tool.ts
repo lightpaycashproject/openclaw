@@ -7,8 +7,7 @@ import {
   resolveConfiguredModelKeys,
 } from "../../commands/model-picker.js";
 import type { OpenClawConfig } from "../../config/config.js";
-import { writeConfig } from "../../config/io.js";
-import { reloadConfig } from "../../config/reload.js";
+import { clearConfigCache, loadConfig, writeConfigFile } from "../../config/config.js";
 import { loadModelCatalog } from "../model-catalog.js";
 import { stringEnum } from "../schema/typebox.js";
 import { type AnyAgentTool, jsonResult, readNumberParam, readStringParam } from "./common.js";
@@ -70,11 +69,11 @@ export function createModelManagementTool(): AnyAgentTool {
     description:
       "Manage configured models in OpenClaw. Actions: add, remove, setPrimary, setFallbacks, list (current config), listAvailable (browse catalog), search (search models). Use listAvailable to browse OpenRouter models. Models are auto-prefixed with provider (e.g., 'glm-5' becomes 'openrouter/z-ai/glm-5').",
     parameters: ModelManagementToolSchema,
-    execute: async (_toolCallId, args, context) => {
+    execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
       const action = readStringParam(params, "action", { required: true });
 
-      let cfg: OpenClawConfig = context.config;
+      let cfg: OpenClawConfig = loadConfig();
       let message = "";
 
       switch (action) {
@@ -213,10 +212,10 @@ export function createModelManagementTool(): AnyAgentTool {
       }
 
       // Write the updated config
-      await writeConfig(cfg, context.workspaceDir);
+      await writeConfigFile(cfg);
 
       // Reload config in memory
-      await reloadConfig();
+      clearConfigCache();
 
       return jsonResult({ success: true, message });
     },
