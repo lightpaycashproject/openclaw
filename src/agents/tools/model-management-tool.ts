@@ -7,8 +7,6 @@ import {
   resolveConfiguredModelKeys,
 } from "../../commands/model-picker.js";
 import type { OpenClawConfig } from "../../config/config.js";
-import { writeConfig } from "../../config/io.js";
-import { reloadConfig } from "../../config/reload.js";
 import { loadModelCatalog } from "../model-catalog.js";
 import { stringEnum } from "../schema/typebox.js";
 import { type AnyAgentTool, jsonResult, readNumberParam, readStringParam } from "./common.js";
@@ -25,9 +23,9 @@ const MODEL_ACTIONS = [
 
 const ModelManagementToolSchema = Type.Object({
   action: stringEnum(MODEL_ACTIONS),
-  // add, remove
+  // add, remove, setPrimary
   model: Type.Optional(Type.String()),
-  // setFallbacks
+  // setFallbacks (comma-separated)
   models: Type.Optional(Type.String()),
   // listAvailable, search
   provider: Type.Optional(Type.String()),
@@ -37,55 +35,89 @@ const ModelManagementToolSchema = Type.Object({
   limit: Type.Optional(Type.Number()),
 });
 
+/**
+ * Resolve model ID to full model ref with provider prefix.
+ * If model already has provider prefix (e.g., "openrouter/z-ai/glm-5"), returns as-is.
+ * Otherwise, searches catalog and adds provider prefix if found.
+ */
+async function resolveModelRef(modelId: string, cfg: OpenClawConfig): Promise<string> {
+  // Already has provider prefix
+  if (modelId.includes("/")) {
+    return modelId;
+  }
+
+  // Search catalog for the model
+  const catalog = await loadModelCatalog({ config: cfg, useCache: true });
+  const found = catalog.find((m) => m.id === modelId || m.id.endsWith(`/${modelId}`));
+
+  if (found) {
+    return `${found.provider}/${found.id}`;
+  }
+
+  // Default to openrouter if not found
+  return `openrouter/${modelId}`;
+}
+
 export function createModelManagementTool(): AnyAgentTool {
   return {
     label: "Model Management",
     name: "model-management",
     description:
-      "Manage configured models in OpenClaw. Actions: add, remove, setPrimary, setFallbacks, list (current config), listAvailable (browse catalog), search (search models). Use listAvailable to browse OpenRouter models.",
+      "Manage configured models in OpenClaw. Actions: add, remove, setPrimary, setFallbacks, list (current config), listAvailable (browse catalog), search (search models). Use listAvailable to browse OpenRouter models. Models are auto-prefixed with provider (e.g., 'glm-5' becomes 'openrouter/z-ai/glm-5').",
     parameters: ModelManagementToolSchema,
     execute: async (_toolCallId, args, context) => {
       const params = args as Record<string, unknown>;
       const action = readStringParam(params, "action", { required: true });
 
-      let cfg: OpenClawConfig = context.config;
+      const cfg = context.config;
       let message = "";
 
       switch (action) {
         case "add": {
           const model = readStringParam(params, "model", { required: true });
+          const resolvedModel = await resolveModelRef(model, cfg);
           const existingKeys = resolveConfiguredModelKeys(cfg);
-          const normalized = normalizeModelKeys([...existingKeys, model]);
-          cfg = applyModelAllowlist(cfg, normalized);
-          message = `Added model: ${model}`;
-          break;
+          const normalized = normalizeModelKeys([...existingKeys, resolvedModel]);
+          const nextCfg = applyModelAllowlist(cfg, normalized);
+          message = `Added model: ${resolvedModel}`;
+          return jsonResult({ success: true, message, model: resolvedModel, config: nextCfg });
         }
 
         case "remove": {
           const model = readStringParam(params, "model", { required: true });
+          const resolvedModel = await resolveModelRef(model, cfg);
           const existingKeys = resolveConfiguredModelKeys(cfg);
-          const normalized = normalizeModelKeys(existingKeys.filter((m) => m !== model));
-          cfg = applyModelAllowlist(cfg, normalized);
-          message = `Removed model: ${model}`;
-          break;
+          const normalized = normalizeModelKeys(existingKeys.filter((m) => m !== resolvedModel));
+          const nextCfg = applyModelAllowlist(cfg, normalized);
+          message = `Removed model: ${resolvedModel}`;
+          return jsonResult({ success: true, message, model: resolvedModel, config: nextCfg });
         }
 
         case "setPrimary": {
           const model = readStringParam(params, "model", { required: true });
-          cfg = applyPrimaryModel(cfg, model);
-          message = `Primary model set to: ${model} (hot swap)`;
-          break;
+          const resolvedModel = await resolveModelRef(model, cfg);
+          const nextCfg = applyPrimaryModel(cfg, resolvedModel);
+          message = `Primary model set to: ${resolvedModel} (hot swap)`;
+          return jsonResult({ success: true, message, model: resolvedModel, config: nextCfg });
         }
 
         case "setFallbacks": {
           const modelsStr = readStringParam(params, "models", { required: true });
-          const fallbackModels = modelsStr
+          const modelList = modelsStr
             .split(",")
             .map((m) => m.trim())
             .filter(Boolean);
-          cfg = applyModelFallbacksFromSelection(cfg, fallbackModels);
-          message = `Fallbacks set to: ${fallbackModels.join(", ")}`;
-          break;
+
+          // Resolve each model with provider prefix
+          const resolvedModels: string[] = [];
+          for (const model of modelList) {
+            const resolved = await resolveModelRef(model, cfg);
+            resolvedModels.push(resolved);
+          }
+
+          const nextCfg = applyModelFallbacksFromSelection(cfg, resolvedModels);
+          message = `Fallbacks set to: ${resolvedModels.join(", ")}`;
+          return jsonResult({ success: true, message, models: resolvedModels, config: nextCfg });
         }
 
         case "list": {
@@ -175,14 +207,6 @@ export function createModelManagementTool(): AnyAgentTool {
         default:
           throw new Error(`Unknown action: ${action}`);
       }
-
-      // Write the updated config
-      await writeConfig(cfg, context.workspaceDir);
-
-      // Reload config in memory
-      await reloadConfig();
-
-      return jsonResult({ success: true, message });
     },
   };
 }

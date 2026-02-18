@@ -1,0 +1,1 @@
+[{"import": "pytest", "pytest.mark.integration": "test_e2e_dry_run(self)", "print(\"\\nE2E test setup complete\")": "print(\"Dry run bot.py --dry-run --mode safe\")", "print(\"Run backtest compare_runs.py --hours 72\")": "print(\"Test auto_claim.py background service\")"}]

@@ -1,0 +1,1 @@
+[{"symbol": "BTCUSDT", "interval": "1m", "start_time": "336", "end_time": "0", "page_size": "1440", "all_candles": "candles", "print(f": "Symbols: {args.symbol", "Fetched {len(candles)}, \"Window base": "300"}]

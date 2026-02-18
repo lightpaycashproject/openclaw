@@ -1,0 +1,1 @@
+[{"import": "bot.py as bot", "import argparse\": \"def main()": "args = parse_args(): \"bot.run(**vars(args))"}]

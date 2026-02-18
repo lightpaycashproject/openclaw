@@ -1,0 +1,1 @@
+[{"PolymarketBot\": \"Trading bot for BTC 5-minute up/down markets on Polymarket.\", \"\"__version__\": \"0.1.0": "\\\"__author__\": \"OpenClaw\",", "__email__\": \"development@openclaw.ai\"}], \"VERSION": "0.1.0", "NAME": "PolymarketBot", "DESCRIPTION": "Trading bot for BTC 5-minute up/down markets", "PACKAGE_DATA": []}]

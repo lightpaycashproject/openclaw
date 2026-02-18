@@ -1,0 +1,1 @@
+[{"Status Check": "\\nFiles Status:", "\\nbot.py: 16KB - Check if real code": "strategy.py: 4.9KB - Check if real code", "backtest.py: 1.3KB - Still JSON fragments": "\\nDependencies:", "\\nNeed: numpy, requests": "Python 3.14.3 available", "\\nNext:": "\\nCheck bot.py content", "\\nInstall dependencies": "\\nRun backtest"}]

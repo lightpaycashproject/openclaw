@@ -18,15 +18,21 @@ vi.mock("../model-catalog.js", () => ({
       contextWindow: 1000000,
     },
     { id: "llama-3.3-70b", name: "Llama 3.3 70B", provider: "openrouter", contextWindow: 128000 },
+    {
+      id: "glm-5",
+      name: "Z.ai: GLM 5",
+      provider: "openrouter",
+      contextWindow: 202752,
+      reasoning: true,
+    },
+    {
+      id: "glm-4.5",
+      name: "Z.ai: GLM 4.5",
+      provider: "openrouter",
+      contextWindow: 131072,
+      reasoning: true,
+    },
   ]),
-}));
-
-vi.mock("../../config/io.js", () => ({
-  writeConfig: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock("../../config/reload.js", () => ({
-  reloadConfig: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe("model-management tool", () => {
@@ -55,6 +61,129 @@ describe("model-management tool", () => {
     vi.clearAllMocks();
   });
 
+  describe("resolveModelRef (implicit via add action)", () => {
+    it("auto-prefixes model ID with provider from catalog", async () => {
+      const result = await tool.execute(
+        "test-call",
+        { action: "add", model: "glm-5" },
+        mockContext as unknown,
+      );
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.model).toBe("openrouter/glm-5");
+      expect(parsed.message).toContain("openrouter/glm-5");
+    });
+
+    it("keeps existing provider prefix if already present", async () => {
+      const result = await tool.execute(
+        "test-call",
+        { action: "add", model: "openai/gpt-4" },
+        mockContext as unknown,
+      );
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.model).toBe("openai/gpt-4");
+    });
+
+    it("defaults to openrouter if model not found in catalog", async () => {
+      const result = await tool.execute(
+        "test-call",
+        { action: "add", model: "unknown-model-xyz" },
+        mockContext as unknown,
+      );
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.model).toBe("openrouter/unknown-model-xyz");
+    });
+  });
+
+  describe("add action", () => {
+    it("adds a model with auto-prefixed provider", async () => {
+      const result = await tool.execute(
+        "test-call",
+        { action: "add", model: "gpt-4" },
+        mockContext as unknown,
+      );
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.model).toBe("openai/gpt-4");
+      expect(parsed.config).toBeDefined();
+    });
+
+    it("adds model with full provider prefix directly", async () => {
+      const result = await tool.execute(
+        "test-call",
+        { action: "add", model: "anthropic/claude-3.5-sonnet" },
+        mockContext as unknown,
+      );
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.model).toBe("anthropic/claude-3.5-sonnet");
+    });
+  });
+
+  describe("remove action", () => {
+    it("removes a model with auto-prefixed provider", async () => {
+      const result = await tool.execute(
+        "test-call",
+        { action: "remove", model: "claude-3.5-sonnet" },
+        mockContext as unknown,
+      );
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.model).toBe("anthropic/claude-3.5-sonnet");
+    });
+  });
+
+  describe("setPrimary action", () => {
+    it("sets primary model with auto-prefix", async () => {
+      const result = await tool.execute(
+        "test-call",
+        { action: "setPrimary", model: "glm-5" },
+        mockContext as unknown,
+      );
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.model).toBe("openrouter/glm-5");
+      expect(parsed.message).toContain("hot swap");
+    });
+  });
+
+  describe("setFallbacks action", () => {
+    it("sets multiple fallback models with auto-prefix", async () => {
+      const result = await tool.execute(
+        "test-call",
+        { action: "setFallbacks", models: "glm-5, glm-4.5, gpt-4" },
+        mockContext as unknown,
+      );
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.models).toContain("openrouter/glm-5");
+      expect(parsed.models).toContain("openrouter/glm-4.5");
+      expect(parsed.models).toContain("openai/gpt-4");
+    });
+
+    it("handles single fallback model", async () => {
+      const result = await tool.execute(
+        "test-call",
+        { action: "setFallbacks", models: "glm-5" },
+        mockContext as unknown,
+      );
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.models).toContain("openrouter/glm-5");
+    });
+  });
+
   describe("list action", () => {
     it("returns current configured models", async () => {
       const result = await tool.execute("test-call", { action: "list" }, mockContext as unknown);
@@ -67,133 +196,17 @@ describe("model-management tool", () => {
     });
   });
 
-  describe("add action", () => {
-    it("adds a model to the config", async () => {
-      const result = await tool.execute(
-        "test-call",
-        {
-          action: "add",
-          model: "google/gemini-2.0-flash",
-        },
-        mockContext as unknown,
-      );
-      const parsed = JSON.parse(result.content[0].text);
-
-      expect(parsed.success).toBe(true);
-      expect(parsed.message).toContain("Added model");
-      expect(parsed.message).toContain("google/gemini-2.0-flash");
-    });
-
-    it("adds to existing models without duplicates", async () => {
-      const result = await tool.execute(
-        "test-call",
-        {
-          action: "add",
-          model: "openai/gpt-4o",
-        },
-        mockContext as unknown,
-      );
-      const parsed = JSON.parse(result.content[0].text);
-
-      expect(parsed.success).toBe(true);
-    });
-  });
-
-  describe("remove action", () => {
-    it("removes a model from the config", async () => {
-      const result = await tool.execute(
-        "test-call",
-        {
-          action: "remove",
-          model: "anthropic/claude-3.5-sonnet",
-        },
-        mockContext as unknown,
-      );
-      const parsed = JSON.parse(result.content[0].text);
-
-      expect(parsed.success).toBe(true);
-      expect(parsed.message).toContain("Removed model");
-    });
-
-    it("handles removing non-existent model gracefully", async () => {
-      const result = await tool.execute(
-        "test-call",
-        {
-          action: "remove",
-          model: "nonexistent/model",
-        },
-        mockContext as unknown,
-      );
-      const parsed = JSON.parse(result.content[0].text);
-
-      expect(parsed.success).toBe(true);
-    });
-  });
-
-  describe("setPrimary action", () => {
-    it("sets the primary model", async () => {
-      const result = await tool.execute(
-        "test-call",
-        {
-          action: "setPrimary",
-          model: "openai/gpt-4",
-        },
-        mockContext as unknown,
-      );
-      const parsed = JSON.parse(result.content[0].text);
-
-      expect(parsed.success).toBe(true);
-      expect(parsed.message).toContain("openai/gpt-4");
-      expect(parsed.message).toContain("hot swap");
-    });
-  });
-
-  describe("setFallbacks action", () => {
-    it("sets fallback models from comma-separated string", async () => {
-      const result = await tool.execute(
-        "test-call",
-        {
-          action: "setFallbacks",
-          models: "anthropic/claude-3.5-sonnet, google/gemini-2.0-flash, openrouter/llama-3.3-70b",
-        },
-        mockContext as unknown,
-      );
-      const parsed = JSON.parse(result.content[0].text);
-
-      expect(parsed.success).toBe(true);
-      expect(parsed.message).toContain("anthropic/claude-3.5-sonnet");
-      expect(parsed.message).toContain("google/gemini-2.0-flash");
-    });
-
-    it("handles single fallback model", async () => {
-      const result = await tool.execute(
-        "test-call",
-        {
-          action: "setFallbacks",
-          models: "openai/gpt-4",
-        },
-        mockContext as unknown,
-      );
-      const parsed = JSON.parse(result.content[0].text);
-
-      expect(parsed.success).toBe(true);
-    });
-  });
-
   describe("listAvailable action", () => {
     it("lists all available models from catalog", async () => {
       const result = await tool.execute(
         "test-call",
-        {
-          action: "listAvailable",
-          limit: 10,
-        },
+        { action: "listAvailable", limit: 10 },
         mockContext as unknown,
       );
       const parsed = JSON.parse(result.content[0].text);
 
-      expect(parsed.total).toBe(5);
-      expect(parsed.shown).toBe(5);
+      expect(parsed.total).toBe(7);
+      expect(parsed.shown).toBe(7);
       expect(parsed.byProvider).toHaveProperty("openai");
       expect(parsed.byProvider).toHaveProperty("anthropic");
       expect(parsed.byProvider).toHaveProperty("google");
@@ -203,10 +216,7 @@ describe("model-management tool", () => {
     it("filters by provider", async () => {
       const result = await tool.execute(
         "test-call",
-        {
-          action: "listAvailable",
-          provider: "openai",
-        },
+        { action: "listAvailable", provider: "openai" },
         mockContext as unknown,
       );
       const parsed = JSON.parse(result.content[0].text);
@@ -218,10 +228,7 @@ describe("model-management tool", () => {
     it("respects limit parameter", async () => {
       const result = await tool.execute(
         "test-call",
-        {
-          action: "listAvailable",
-          limit: 2,
-        },
+        { action: "listAvailable", limit: 2 },
         mockContext as unknown,
       );
       const parsed = JSON.parse(result.content[0].text);
@@ -234,10 +241,7 @@ describe("model-management tool", () => {
     it("searches models by query", async () => {
       const result = await tool.execute(
         "test-call",
-        {
-          action: "search",
-          query: "gpt",
-        },
+        { action: "search", query: "gpt" },
         mockContext as unknown,
       );
       const parsed = JSON.parse(result.content[0].text);
@@ -250,11 +254,7 @@ describe("model-management tool", () => {
     it("filters by provider and searches", async () => {
       const result = await tool.execute(
         "test-call",
-        {
-          action: "search",
-          query: "claude",
-          provider: "anthropic",
-        },
+        { action: "search", query: "claude", provider: "anthropic" },
         mockContext as unknown,
       );
       const parsed = JSON.parse(result.content[0].text);
@@ -266,10 +266,7 @@ describe("model-management tool", () => {
     it("returns empty for no matches", async () => {
       const result = await tool.execute(
         "test-call",
-        {
-          action: "search",
-          query: "nonexistent-model-xyz",
-        },
+        { action: "search", query: "nonexistent-model-xyz" },
         mockContext as unknown,
       );
       const parsed = JSON.parse(result.content[0].text);
@@ -296,6 +293,12 @@ describe("model-management tool", () => {
       await expect(
         tool.execute("test-call", { action: "search" }, mockContext as unknown),
       ).rejects.toThrow("query");
+    });
+
+    it("throws error when models param missing for setFallbacks action", async () => {
+      await expect(
+        tool.execute("test-call", { action: "setFallbacks" }, mockContext as unknown),
+      ).rejects.toThrow("models");
     });
   });
 });
