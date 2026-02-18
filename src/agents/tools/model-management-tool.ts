@@ -7,7 +7,7 @@ import {
   resolveConfiguredModelKeys,
 } from "../../commands/model-picker.js";
 import type { OpenClawConfig } from "../../config/config.js";
-import { clearConfigCache, loadConfig, writeConfigFile } from "../../config/config.js";
+import { loadConfig, reloadConfig, writeConfigFile } from "../../config/config.js";
 import { loadModelCatalog } from "../model-catalog.js";
 import { stringEnum } from "../schema/typebox.js";
 import { type AnyAgentTool, jsonResult, readNumberParam, readStringParam } from "./common.js";
@@ -215,7 +215,7 @@ export function createModelManagementTool(): AnyAgentTool {
       await writeConfigFile(cfg);
 
       // Reload config in memory
-      clearConfigCache();
+      reloadConfig();
 
       return jsonResult({ success: true, message });
     },

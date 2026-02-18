@@ -33,11 +33,11 @@ vi.mock("../model-catalog.js", () => ({
 const {
   loadConfig: loadConfigMock,
   writeConfigFile: writeConfigFileMock,
-  clearConfigCache: clearConfigCacheMock,
+  reloadConfig: reloadConfigMock,
 } = vi.hoisted(() => ({
   loadConfig: vi.fn(),
   writeConfigFile: vi.fn(),
-  clearConfigCache: vi.fn(),
+  reloadConfig: vi.fn(),
 }));
 
 vi.mock("../../config/config.js", () => ({
@@ -47,8 +47,8 @@ vi.mock("../../config/config.js", () => ({
   get writeConfigFile() {
     return writeConfigFileMock;
   },
-  get clearConfigCache() {
-    return clearConfigCacheMock;
+  get reloadConfig() {
+    return reloadConfigMock;
   },
 }));
 
